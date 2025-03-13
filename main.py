@@ -32,19 +32,15 @@ else:
 
 load_dotenv()
 
-# API Keys from environment variables
-PUBMED_API_KEY = os.environ.get("PUBMED_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
-
-# Debug: Log the loaded API keys (mask sensitive parts for security)
-logger.info(f"PUBMED_API_KEY: {'Set' if PUBMED_API_KEY else 'Not set'}")
-logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
-logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
+# Debug all environment variables
+logger.info(f"Loaded environment variables: {dict(os.environ)}")
+logger.info(f"PUBMED_API_KEY: {os.environ.get('PUBMED_API_KEY', 'Not found')}")
+logger.info(f"OPENAI_API_KEY: {os.environ.get('OPENAI_API_KEY', 'Not found')}")
+logger.info(f"PERPLEXITY_API_KEY: {os.environ.get('PERPLEXITY_API_KEY', 'Not found')}")
 
 # Check if API keys are loaded
 if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY]):
-    raise ValueError("One or more API keys are missing. Please check your .env file.")
+    raise ValueError("One or more API keys are missing. Please check your .env file or environment variables.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
