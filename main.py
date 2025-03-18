@@ -310,7 +310,8 @@ def generate_content(state: State) -> dict:
                               [f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
-    prompt = f"""Please produce a referenced, fact-checked, and neutral article about {state['user_input_topic']}, written to the standard of a professional medical journalist.
+    prompt = f"""
+    Please produce a referenced, fact-checked, and neutral article about {state['user_input_topic']}, written to the standard of a professional medical journalist in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.).
     The article must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations
     (e.g., CDC, FDA, WHO, NEJM, JAMA). Provide a reference list with clickable links at the end. Before producing the final article, 
     conduct an explicit accuracy check where you cross-reference all facts and correct any errors. The tone should be objective and evidence-based,
@@ -321,7 +322,7 @@ def generate_content(state: State) -> dict:
     - Length: Approximately {length_words} words
     - Target Audience: {state['target_audience']}
     - Reference Data: {combined_data}
-    
+        
     """
     errors = []
     critical_error = False
