@@ -1,6 +1,5 @@
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-import ssl
 
 MONGODB_URI = "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
 
@@ -10,7 +9,6 @@ try:
         server_api=ServerApi('1'),
         tls=True,
         tlsAllowInvalidCertificates=True,
-        ssl_version=ssl.PROTOCOL_TLSv1_2,
         socketTimeoutMS=30000,
         connectTimeoutMS=30000
     )
