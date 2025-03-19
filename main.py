@@ -12,6 +12,10 @@ import time
 import datetime
 from functools import wraps
 import traceback
+from fastapi import FastAPI, HTTPException
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+from pydantic import BaseModel
 
 # Load environment variables from .env file
 logger = logging.getLogger(__name__)
@@ -37,17 +41,34 @@ PUBMED_API_KEY = os.environ.get("PUBMED_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 
-# Debug: Log the loaded API keys (mask sensitive parts for security)
+# MongoDB connection details
+MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles")
+
+# Debug: Log the loaded API keys and MongoDB URI (mask sensitive parts for security)
 logger.info(f"PUBMED_API_KEY: {'Set' if PUBMED_API_KEY else 'Not set'}")
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
+logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
 # Check if API keys are loaded
-if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY]):
-    raise ValueError("One or more API keys are missing. Please check your .env file or environment variables.")
+if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI]):
+    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing. Please check your .env file or environment variables.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Connect to MongoDB
+try:
+    client_mongo = MongoClient(MONGODB_URI, server_api=ServerApi('1'))
+    client_mongo.admin.command('ping')  # Ping to confirm successful connection
+    logger.info("Successfully connected to MongoDB!")
+except Exception as e:
+    logger.error(f"Error connecting to MongoDB: {e}")
+    raise ValueError(f"Error connecting to MongoDB: {e}")
+
+# Database and collection
+db = client_mongo['TopMedicalArticles']
+collection = db['TrendingTopics']
 
 # Decorator to time functions
 def timeit(func):
@@ -77,7 +98,7 @@ class State(TypedDict):
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
-    critical_error: Annotated[bool, lambda x, y: x or y]  # Combines booleans with logical OR
+    critical_error: Annotated[bool, lambda x, y: x or y]
 
 # Workflow functions
 @timeit
@@ -322,15 +343,14 @@ def generate_content(state: State) -> dict:
     - Length: Approximately {length_words} words
     - Target Audience: {state['target_audience']}
     - Reference Data: {combined_data}
-        
     """
     errors = []
     critical_error = False
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role": "user", "content": prompt}], 
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
             max_tokens=4096
         )
         content = response.choices[0].message.content
@@ -412,9 +432,9 @@ def validate_content(state: State) -> dict:
 
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role": "user", "content": validation_prompt}], 
-            max_tokens=1024, 
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": validation_prompt}],
+            max_tokens=1024,
             response_format={"type": "json_object"}
         )
         validation_data = json.loads(response.choices[0].message.content)
@@ -494,11 +514,14 @@ workflow.add_edge("validate_content", END)
 
 app = workflow.compile()
 
-# FastAPI endpoint with total timing
-from fastapi import FastAPI, HTTPException
-
+# FastAPI app
 fastapi_app = FastAPI()
 
+# Pydantic model for trending topics response
+class TopicsResponse(BaseModel):
+    topics: List[str]
+
+# Existing endpoint for article generation
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     initial_state = {
@@ -538,6 +561,54 @@ async def generate_article(request: dict):
         logger.error(f"Workflow failed: {str(e)} - Total time: {total_time:.4f} seconds")
         logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
+
+# New endpoint to fetch and store trending topics
+@fastapi_app.post("/fetch-topics/", response_model=TopicsResponse)
+async def fetch_and_store_topics():
+    try:
+        # Fetch top 5 trending medical topics using OpenAI
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-search-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
+                    Provide only the list of topics, ranked by popularity, 
+                    that are trending and suitable for creating articles for medical students. 
+                    Do not include explanations or details beyond the topic names.
+                    Just return the topic names, don't say any other thing
+                    also don't add numbering"""
+                }
+            ]
+        )
+        topics = completion.choices[0].message.content.strip().split("\n")
+        topics = [topic.strip() for topic in topics if topic.strip()]
+
+        # Store/Replace topics in MongoDB
+        collection.delete_many({})
+        collection.insert_one({"topics": topics})
+
+        logger.info(f"Stored {len(topics)} trending topics in MongoDB")
+        return {"topics": topics}
+    except Exception as e:
+        logger.error(f"Error fetching or storing topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching or storing topics: {str(e)}")
+
+# New endpoint to retrieve stored topics
+@fastapi_app.get("/get-topics/", response_model=TopicsResponse)
+async def get_topics():
+    try:
+        document = collection.find_one()
+        if document and 'topics' in document:
+            topics = document['topics']
+            logger.info(f"Retrieved {len(topics)} topics from MongoDB")
+            return {"topics": topics}
+        else:
+            logger.warning("No topics found in MongoDB")
+            raise HTTPException(status_code=404, detail="No topics found in the database.")
+    except Exception as e:
+        logger.error(f"Error fetching topics from MongoDB: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
