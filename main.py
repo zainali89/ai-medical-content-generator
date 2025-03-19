@@ -529,8 +529,8 @@ async def generate_article(request: dict):
         logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
 
-@fastapi_app.post("/fetch-topics/", response_model=TopicsResponse)
-async def fetch_and_store_topics():
+@fastapi_app.post("/update-topics/", response_model=TopicsResponse)
+async def update_topics():
     try:
         completion = openai_client.chat.completions.create(
             model="gpt-4o-search-preview",
@@ -573,4 +573,6 @@ async def get_topics():
 
 if __name__ == "__main__":
     import uvicorn
+    import nest_asyncio
+    nest_asyncio.apply()  # Allow nested event loops
     uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
