@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+from pymongo import *
 import ssl
 
 MONGODB_URI = "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
