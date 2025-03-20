@@ -71,7 +71,6 @@ try:
         MONGODB_URI,
         server_api=ServerApi('1'),
         tls=True,  # Ensure TLS is enabled
-        tlsCAFile=CA_CERT_PATH  # Specify the CA certificate file path
     )
     # Verify connection with a ping command
     client_mongo.admin.command('ping')
