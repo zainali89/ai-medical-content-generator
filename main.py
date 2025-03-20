@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 import json
 import requests
-import xml.etree.ElementTree as ET 
+import xml.etree.ElementTree as ET
 from typing import TypedDict, List, Dict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
@@ -60,17 +60,11 @@ if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI]):
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Path to the CA certificate file (adjust if necessary)
-CA_CERT_PATH = os.path.join(os.getcwd(), "isrgrootx1.pem")
-if not os.path.exists(CA_CERT_PATH):
-    logger.warning(f"CA certificate file not found at {CA_CERT_PATH}. Ensure it’s in the working directory or update the path.")
-
 # Connect to MongoDB with CA certificate
 try:
     client_mongo = MongoClient(
         MONGODB_URI,
         server_api=ServerApi('1'),
-        tls=True,  # Ensure TLS is enabled
     )
     # Verify connection with a ping command
     client_mongo.admin.command('ping')
