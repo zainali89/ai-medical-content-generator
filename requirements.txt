@@ -9,3 +9,4 @@ python-docx
 reportlab
 pymongo
 nest_asyncio
+celery
