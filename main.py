@@ -18,6 +18,8 @@ from pymongo.server_api import ServerApi
 from pydantic import BaseModel
 import nest_asyncio
 import uvicorn
+from celery import Celery
+import pytz
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -40,7 +42,7 @@ else:
 
 load_dotenv()
 
-# API Keys from environment variables
+# API Keys and MongoDB URI from environment variables
 PUBMED_API_KEY = os.environ.get("PUBMED_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
@@ -75,6 +77,22 @@ except Exception as e:
 
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
+
+# Celery setup (using Redis as the broker)
+celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
+
+# Celery Beat scheduling configuration
+celery_app.conf.timezone = "Australia/Sydney"
+celery_app.conf.beat_schedule = {
+    "update-medical-topics-daily": {
+        "task": "app.fetch_and_store_topics_task",  # Module path to the task
+        "schedule": crontab(hour=0, minute=0),  # Runs at 12 AM AEST/AEDT
+        "options": {"timezone": "Australia/Sydney"}
+    },
+}
+celery_app.conf.update(
+    result_expires=3600,
+)
 
 # Decorator to time functions
 def timeit(func):
@@ -497,6 +515,34 @@ fastapi_app = FastAPI()
 class TopicsResponse(BaseModel):
     topics: List[str]
 
+# Celery task for fetching and storing topics
+@celery_app.task(name="fetch_and_store_topics_task")
+def fetch_and_store_topics_task():
+    try:
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-search-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
+                    Provide only the list of topics, ranked by popularity, 
+                    that are trending and suitable for creating articles for medical students. 
+                    Do not include explanations or details beyond the topic names.
+                    Just return the topic names, don't say any other thing
+                    also don't add numbering"""
+                }
+            ]
+        )
+        topics = completion.choices[0].message.content.strip().split("\n")
+        topics = [topic.strip() for topic in topics if topic.strip()]
+        collection.delete_many({})
+        collection.insert_one({"topics": topics})
+        logger.info(f"Stored {len(topics)} trending topics in MongoDB")
+        return {"topics": topics}
+    except Exception as e:
+        logger.error(f"Error fetching or storing topics: {str(e)}")
+        raise
+
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     initial_state = {
@@ -537,28 +583,10 @@ async def generate_article(request: dict):
 @fastapi_app.post("/add-topics/", response_model=TopicsResponse)
 async def fetch_and_store_topics():
     try:
-        completion = openai_client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
-                    Provide only the list of topics, ranked by popularity, 
-                    that are trending and suitable for creating articles for medical students. 
-                    Do not include explanations or details beyond the topic names.
-                    Just return the topic names, don't say any other thing
-                    also don't add numbering"""
-                }
-            ]
-        )
-        topics = completion.choices[0].message.content.strip().split("\n")
-        topics = [topic.strip() for topic in topics if topic.strip()]
-        collection.delete_many({})
-        collection.insert_one({"topics": topics})
-        logger.info(f"Stored {len(topics)} trending topics in MongoDB")
-        return {"topics": topics}
+        result = fetch_and_store_topics_task.delay().get(timeout=60)  # Wait for task completion
+        return result
     except Exception as e:
-        logger.error(f"Error fetching or storing topics: {str(e)}")
+        logger.error(f"Error in endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching or storing topics: {str(e)}")
 
 @fastapi_app.get("/get-topics/", response_model=TopicsResponse)
