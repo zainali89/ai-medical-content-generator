@@ -20,6 +20,7 @@ import nest_asyncio
 import uvicorn
 from celery import Celery
 import pytz
+from celery.schedules import crontab  # Explicitly import crontab
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -62,18 +63,19 @@ if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI]):
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Connect to MongoDB with CA certificate
+# Connect to MongoDB (no explicit tlsCAFile unless required)
 try:
     client_mongo = MongoClient(
         MONGODB_URI,
         server_api=ServerApi('1'),
+        # Removed tlsCAFile parameter to rely on default TLS handling for mongodb+srv
     )
     # Verify connection with a ping command
     client_mongo.admin.command('ping')
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
-    logger.error(f"Error connecting to MongoDB: {e}")
-    raise ValueError(f"Error connecting to MongoDB: {e}")
+    logger.error(f"Error connecting to MongoDB: {str(e)}")
+    raise ValueError(f"Error connecting to MongoDB: {str(e)}")
 
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
