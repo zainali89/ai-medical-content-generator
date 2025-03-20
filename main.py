@@ -20,7 +20,7 @@ import nest_asyncio
 import uvicorn
 from celery import Celery
 import pytz
-from celery.schedules import crontab  # Explicitly import crontab
+from celery.schedules import crontab
 from fastapi.middleware.cors import CORSMiddleware
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
@@ -69,9 +69,7 @@ try:
     client_mongo = MongoClient(
         MONGODB_URI,
         server_api=ServerApi('1'),
-        # Removed tlsCAFile parameter to rely on default TLS handling for mongodb+srv
     )
-    # Verify connection with a ping command
     client_mongo.admin.command('ping')
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
@@ -88,8 +86,8 @@ celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis:/
 celery_app.conf.timezone = "Australia/Sydney"
 celery_app.conf.beat_schedule = {
     "update-medical-topics-daily": {
-        "task": "app.fetch_and_store_topics_task",  # Module path to the task
-        "schedule": crontab(hour=0, minute=0),  # Runs at 12 AM AEST/AEDT
+        "task": "app.fetch_and_store_topics_task",
+        "schedule": crontab(hour=0, minute=0),
         "options": {"timezone": "Australia/Sydney"}
     },
 }
@@ -515,7 +513,7 @@ app = workflow.compile()
 fastapi_app = FastAPI()
 
 # --- CORS Middleware ---
-app.add_middleware(
+fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  
     allow_credentials=False,
@@ -595,7 +593,7 @@ async def generate_article(request: dict):
 @fastapi_app.post("/add-topics/", response_model=TopicsResponse)
 async def fetch_and_store_topics():
     try:
-        result = fetch_and_store_topics_task.delay().get(timeout=60)  # Wait for task completion
+        result = fetch_and_store_topics_task.delay().get(timeout=60)
         return result
     except Exception as e:
         logger.error(f"Error in endpoint: {str(e)}")
@@ -617,7 +615,6 @@ async def get_topics():
         raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
 
 if __name__ == "__main__":
-    # Run Uvicorn with the existing event loop
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, loop="asyncio")
     server = uvicorn.Server(config)
     server.run()
