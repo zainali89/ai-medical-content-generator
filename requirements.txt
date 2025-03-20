@@ -10,3 +10,4 @@ reportlab
 pymongo
 nest_asyncio
 celery
+pytz
