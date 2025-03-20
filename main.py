@@ -21,6 +21,7 @@ import uvicorn
 from celery import Celery
 import pytz
 from celery.schedules import crontab  # Explicitly import crontab
+from fastapi.middleware.cors import CORSMiddleware
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -512,6 +513,15 @@ app = workflow.compile()
 
 # FastAPI app
 fastapi_app = FastAPI()
+
+# --- CORS Middleware ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic model for trending topics response
 class TopicsResponse(BaseModel):
