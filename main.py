@@ -210,7 +210,8 @@ def search_perplexity(state: State) -> dict:
                 Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension level of the target_audience: '{state['target_audience']}', 
                 followed by detailed information including key findings, methodologies, relevant statistics, and citations or links to the original sources. 
                 Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article. 
-                At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]"""
+                At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]
+                Make sure to return URLs that can be assesible by simply copying and pasting them"""
             }
         ],
         "max_tokens": 1500,
