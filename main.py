@@ -337,28 +337,20 @@ def generate_content(state: State) -> dict:
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. The article should be written in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.) and must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations (e.g., CDC, FDA, WHO, NEJM, JAMA).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. 
+    The article should be written in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.) 
+    and must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations (e.g., CDC, FDA, WHO, NEJM, JAMA).
     
     Adjust the language, tone, and level of detail to be appropriate for the target audience:
     - For medical professionals or students, use technical medical terminology and provide in-depth analysis.
     - For the general public or patients, use plain language, explain any medical terms, and focus on practical implications and takeaways.
     
-    Use the provided reference data to support factual claims, presenting the information in a way that is accessible and engaging for the target audience. The reference data includes:
-    - **PubMed Data**: JSON-formatted entries with fields like 'title', 'abstract', 'authors', 'journal', 'pub_date', and 'doi' (e.g., '10.1000/xyz123').
-    - **Perplexity Data**: Text lines, including a 'Sources' section at the end with entries formatted as 'Title (Author(s), Publication Date). Link: [URL]'.
-    
-    Follow these rules for references and links:
-    - Extract URLs directly from the Perplexity 'Sources' section (e.g., lines starting with 'Link: [URL]') and use them verbatim as clickable links.
-    - For PubMed data, construct URLs using:
-      - DOIs if available (format: 'https://doi.org/[DOI]'), where [DOI] is the exact value from the 'doi' field.
-      - PMIDs if no DOI is present (format: 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/'), where [PMID] is the article ID.
-    - Only include a reference in the list if a valid URL can be sourced from the reference data (Perplexity URLs, PubMed DOIs, or PMIDs). If no valid URL is available for a piece of data, do not fabricate a link—omit the reference instead.
-    - Cross-reference all factual claims with the reference data and correct any discrepancies before finalising the article.
-    
-    The tone must remain objective and evidence-based, avoiding speculation or editorial commentary unless clearly labelled as such. Ensure all data is current as of {current_date} and note any areas where data is unavailable for review. At the end of the article, provide a reference list with clickable links in this exact format:
-    - [Number]. Title (Author(s), Publication Date). Link: [URL]
-    Each URL must be a complete, functional link directly extracted or constructed from the reference data—do not invent or use placeholder URLs (e.g., '.example.com') under any circumstances.
-    
+    Use the provided reference data to support factual claims, but present the information in a way that is accessible and engaging for the target audience. 
+    Before finalising the article, conduct an explicit accuracy check by cross-referencing all facts with the reference data and correct any errors. 
+    The tone should be objective and evidence-based, without speculation or editorial commentary unless clearly labelled as such. 
+    Ensure all data is current as of {current_date} and highlight any areas where data is unavailable for review. Provide a reference list with links at the end.
+    Make sure to add full reference links from which you got the context and also make sure to follow a proper ouput format.
+
     - User Description: {state['user_input_description']}
     - Length: Approximately {length_words} words
     - Reference Data: {combined_data}
@@ -367,9 +359,9 @@ def generate_content(state: State) -> dict:
     critical_error = False
     try:
         response = openai_client.chat.completions.create(
-            model="o3-mini",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=8000
+            max_tokens=8000
         )
         content = response.choices[0].message.content
         logger.info("Content generated successfully")
