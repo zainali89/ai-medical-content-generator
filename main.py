@@ -345,7 +345,7 @@ def generate_content(state: State) -> dict:
     - For the general public or patients, use plain language, explain any medical terms, and focus on practical implications and takeaways.
     
     Use the provided reference data to support factual claims, but present the information in a way that is accessible and engaging for the target audience. Before finalising the article, conduct an explicit accuracy check by cross-referencing all facts with the reference data and correct any errors. The tone should be objective and evidence-based, without speculation or editorial commentary unless clearly labelled as such. Ensure all data is current as of {current_date} and highlight any areas where data is unavailable for review. Provide a reference list with clickable links at the end.
-    Make sure to add full reference links from which you got the context.
+    Make sure to add full reference links from which you got the context and also make sure to follow a proper ouput format.
 
     - User Description: {state['user_input_description']}
     - Length: Approximately {length_words} words
