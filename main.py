@@ -206,7 +206,7 @@ def search_perplexity(state: State) -> dict:
             {
                 "role": "user",
                 "content": f"""Retrieve the most recent research data on {state['user_input_topic']} based on the description: '{state['user_input_description']}' 
-                from specified authentic sources. If any sources are unavailable or links are broken, please note this in your response and provide alternative sources if possible.
+                from specified authentic sources. Never make up your own links.
                 Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension level of the target_audience: '{state['target_audience']}', 
                 followed by detailed information including key findings, methodologies, relevant statistics, and citations or links to the original sources. 
                 Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article. 
