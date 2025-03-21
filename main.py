@@ -337,13 +337,18 @@ def generate_content(state: State) -> dict:
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. The article should be written in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.) and must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations (e.g., CDC, FDA, WHO, NEJM, JAMA).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. 
+    The article should be written in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.) 
+    and must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations (e.g., CDC, FDA, WHO, NEJM, JAMA).
     
     Adjust the language, tone, and level of detail to be appropriate for the target audience:
     - For medical professionals or students, use technical medical terminology and provide in-depth analysis.
     - For the general public or patients, use plain language, explain any medical terms, and focus on practical implications and takeaways.
     
-    Use the provided reference data to support factual claims, but present the information in a way that is accessible and engaging for the target audience. Before finalising the article, conduct an explicit accuracy check by cross-referencing all facts with the reference data and correct any errors. The tone should be objective and evidence-based, without speculation or editorial commentary unless clearly labelled as such. Ensure all data is current as of {current_date} and highlight any areas where data is unavailable for review. Provide a reference list with clickable links at the end.
+    Use the provided reference data to support factual claims, but present the information in a way that is accessible and engaging for the target audience. 
+    Before finalising the article, conduct an explicit accuracy check by cross-referencing all facts with the reference data and correct any errors. 
+    The tone should be objective and evidence-based, without speculation or editorial commentary unless clearly labelled as such. 
+    Ensure all data is current as of {current_date} and highlight any areas where data is unavailable for review. Provide a reference list with links at the end.
     Make sure to add full reference links from which you got the context and also make sure to follow a proper ouput format.
 
     - User Description: {state['user_input_description']}
