@@ -205,12 +205,12 @@ def search_perplexity(state: State) -> dict:
             },
             {
                 "role": "user",
-                "content": f"""Retrieve the most recent research data on {state['user_input_topic']} based on the description: '{state['user_input_description']}'
-                from specified authentic sources. Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension
-                level of the target_audience: '{state['target_audience']}', followed by detailed information including
-                key findings, methodologies, relevant statistics, and citations or links to the original sources.
-                Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article.
-                At the end of your response, list the sources you used, including titles, authors, publication dates, and links if available."""
+                "content": f"""Retrieve the most recent research data on {state['user_input_topic']} based on the description: '{state['user_input_description']}' 
+                from specified authentic sources. If any sources are unavailable or links are broken, please note this in your response and provide alternative sources if possible.
+                Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension level of the target_audience: '{state['target_audience']}', 
+                followed by detailed information including key findings, methodologies, relevant statistics, and citations or links to the original sources. 
+                Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article. 
+                At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]"""
             }
         ],
         "max_tokens": 1500,
