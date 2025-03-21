@@ -343,14 +343,21 @@ def generate_content(state: State) -> dict:
     - For medical professionals or students, use technical medical terminology and provide in-depth analysis.
     - For the general public or patients, use plain language, explain any medical terms, and focus on practical implications and takeaways.
     
-    Use the provided reference data to support factual claims, presenting the information in a way that is accessible and engaging for the target audience. The reference data includes PubMed article details (e.g., titles, abstracts, DOIs) and Perplexity data (e.g., structured text with a 'Sources' section containing titles, authors, dates, and URLs). Prioritise the following when integrating data:
-    - Extract and use the exact URLs from the 'Sources' section of the Perplexity data for references, ensuring they are presented as valid, clickable links (e.g., starting with 'https://').
-    - For PubMed data, construct URLs using DOIs (e.g., 'https://doi.org/[DOI]') when available, or link to PubMed abstracts using 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/' if no DOI is provided.
-    - Cross-reference all factual claims with the reference data (PubMed and Perplexity) and correct any discrepancies before finalising the article.
+    Use the provided reference data to support factual claims, presenting the information in a way that is accessible and engaging for the target audience. The reference data includes:
+    - **PubMed Data**: JSON-formatted entries with fields like 'title', 'abstract', 'authors', 'journal', 'pub_date', and 'doi' (e.g., '10.1000/xyz123').
+    - **Perplexity Data**: Text lines, including a 'Sources' section at the end with entries formatted as 'Title (Author(s), Publication Date). Link: [URL]'.
     
-    The tone must remain objective and evidence-based, avoiding speculation or editorial commentary unless clearly labelled as such. Ensure all data is current as of {current_date} and note any areas where data is unavailable for review. At the end of the article, provide a reference list with clickable links in the following format:
+    Follow these rules for references and links:
+    - Extract URLs directly from the Perplexity 'Sources' section (e.g., lines starting with 'Link: [URL]') and use them verbatim as clickable links.
+    - For PubMed data, construct URLs using:
+      - DOIs if available (format: 'https://doi.org/[DOI]'), where [DOI] is the exact value from the 'doi' field.
+      - PMIDs if no DOI is present (format: 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/'), where [PMID] is the article ID.
+    - Only include a reference in the list if a valid URL can be sourced from the reference data (Perplexity URLs, PubMed DOIs, or PMIDs). If no valid URL is available for a piece of data, do not fabricate a link—omit the reference instead.
+    - Cross-reference all factual claims with the reference data and correct any discrepancies before finalising the article.
+    
+    The tone must remain objective and evidence-based, avoiding speculation or editorial commentary unless clearly labelled as such. Ensure all data is current as of {current_date} and note any areas where data is unavailable for review. At the end of the article, provide a reference list with clickable links in this exact format:
     - [Number]. Title (Author(s), Publication Date). Link: [URL]
-    Ensure all links are complete, functional URLs directly sourced from the reference data, avoiding any fabrication or truncation.
+    Each URL must be a complete, functional link directly extracted or constructed from the reference data—do not invent or use placeholder URLs (e.g., '.example.com') under any circumstances.
     
     - User Description: {state['user_input_description']}
     - Length: Approximately {length_words} words
