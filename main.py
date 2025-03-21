@@ -354,9 +354,9 @@ def generate_content(state: State) -> dict:
     critical_error = False
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="o3-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=4096
+            max_tokens=8000
         )
         content = response.choices[0].message.content
         logger.info("Content generated successfully")
