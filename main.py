@@ -337,29 +337,34 @@ def generate_content(state: State) -> dict:
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. 
-    The article should be written in Australian English (e.g., use 'organise' instead of 'organize', 'centre' instead of 'center', etc.) 
-    and must only include factual claims supported by peer-reviewed sources, government publications, or credible medical organisations (e.g., CDC, FDA, WHO, NEJM, JAMA).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims solely on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO).
     
-    Adjust the language, tone, and level of detail to be appropriate for the target audience:
-    - For medical professionals or students, use technical medical terminology and provide in-depth analysis.
-    - For the general public or patients, use plain language, explain any medical terms, and focus on practical implications and takeaways.
+    Adjust language and detail for the audience:
+    - Medical professionals/students: Use technical terms and in-depth analysis.
+    - General public/patients: Use plain language, explain terms, and focus on practical takeaways.
     
-    Use the provided reference data to support factual claims, but present the information in a way that is accessible and engaging for the target audience. 
-    Before finalising the article, conduct an explicit accuracy check by cross-referencing all facts with the reference data and correct any errors. 
-    The tone should be objective and evidence-based, without speculation or editorial commentary unless clearly labelled as such. 
-    Ensure all data is current as of {current_date} and highlight any areas where data is unavailable for review. Provide a reference list with links at the end.
-    Make sure to add full reference links from which you got the context and also make sure to follow a proper ouput format.
-
+    Use only the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
+    - **PubMed**: JSON entries (e.g., 'title', 'doi', 'pmid'). Use 'https://doi.org/[DOI]' for DOIs or 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/' for PMIDs.
+    - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
+    
+    Rules for references:
+    - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
+    - Build PubMed URLs from 'doi' or 'pmid' fields only if present; skip if missing.
+    - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
+    - Verify all facts against the data and correct errors.
+    
+    Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
+    - [Number]. Title (Author(s), Date). Link: [URL]
+    
     - User Description: {state['user_input_description']}
-    - Length: Approximately {length_words} words
+    - Length: ~{length_words} words
     - Reference Data: {combined_data}
     """
     errors = []
     critical_error = False
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=8000
         )
