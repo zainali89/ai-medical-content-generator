@@ -356,7 +356,7 @@ def generate_content(state: State) -> dict:
         response = openai_client.chat.completions.create(
             model="o3-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=8000
+            max_completion_tokens=8000
         )
         content = response.choices[0].message.content
         logger.info("Content generated successfully")
