@@ -59,17 +59,15 @@ logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
 if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI]):
-    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing. Please check your .env file or environment variables.")
+    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+logger.info("OpenAI client initialized.")
 
-# Connect to MongoDB (no explicit tlsCAFile unless required)
+# Connect to MongoDB
 try:
-    client_mongo = MongoClient(
-        MONGODB_URI,
-        server_api=ServerApi('1'),
-    )
+    client_mongo = MongoClient(MONGODB_URI, server_api=ServerApi('1'))
     client_mongo.admin.command('ping')
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
@@ -79,21 +77,24 @@ except Exception as e:
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
 
-# Celery setup (using Redis as the broker)
-celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
+# Celery setup
+try:
+    celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
+    logger.info("Celery app initialized.")
+except Exception as e:
+    logger.error(f"Error initializing Celery: {str(e)}")
+    raise
 
-# Celery Beat scheduling configuration
 celery_app.conf.timezone = "Australia/Sydney"
 celery_app.conf.beat_schedule = {
     "update-medical-topics-daily": {
-        "task": "app.fetch_and_store_topics_task",
-        "schedule": crontab(hour=0, minute=0),
+        "task": "main.fetch_and_store_topics_task",  # Updated to use 'main' module name
+        "schedule": crontab(hour=0, minute=0),  # 12 AM AEST/AEDT
         "options": {"timezone": "Australia/Sydney"}
     },
 }
-celery_app.conf.update(
-    result_expires=3600,
-)
+celery_app.conf.update(result_expires=3600)
+logger.info("Celery schedule configured for 12 AM Australia/Sydney time.")
 
 # Decorator to time functions
 def timeit(func):
@@ -263,12 +264,8 @@ def fetch_article_details(state: State) -> dict:
             logger.debug(f"Processing article with PMID: {pmid}")
             title_elem = article.find(".//ArticleTitle")
             title = title_elem.text if title_elem is not None else "No title"
-            if title_elem is None:
-                logger.warning(f"No ArticleTitle for PMID: {pmid}")
             abstract_elem = article.find(".//AbstractText")
             abstract = abstract_elem.text if abstract_elem is not None else "No abstract"
-            if abstract_elem is None:
-                logger.warning(f"No AbstractText for PMID: {pmid}")
             authors = []
             for auth in article.findall(".//Author"):
                 last_name_elem = auth.find("LastName")
@@ -279,19 +276,13 @@ def fetch_article_details(state: State) -> dict:
             authors = authors if authors else ["Unknown Author"]
             journal_elem = article.find(".//Journal/Title")
             journal = journal_elem.text if journal_elem is not None else "No journal"
-            if journal_elem is None:
-                logger.warning(f"No Journal Title for PMID: {pmid}")
             year_elem = article.find(".//PubDate/Year")
             month_elem = article.find(".//PubDate/Month")
             year = year_elem.text if year_elem is not None else "Unknown"
             month = month_elem.text if month_elem is not None else "Unknown"
             pub_date = f"{year}-{month}"
-            if year_elem is None or month_elem is None:
-                logger.warning(f"Missing PubDate Year or Month for PMID: {pmid}")
             doi_elem = article.find(".//ELocationID[@EIdType='doi']")
             doi = doi_elem.text if doi_elem is not None else "No DOI"
-            if doi_elem is None:
-                logger.info(f"No DOI for PMID: {pmid}")
             article_data.append({
                 "title": title,
                 "abstract": abstract,
@@ -412,24 +403,16 @@ def validate_content(state: State) -> dict:
 
     1. **General Accuracy**: Check if the content is broadly accurate and consistent with common medical knowledge on the topic "{state['user_input_topic']}".
     Allow for minor inaccuracies or generalizations as long as they do not fundamentally misrepresent the topic or pose a risk of harm.
-    For example, if a statistic is slightly off but the overall message is correct, consider it acceptable.
 
     2. **AMA Citation Format**: Verify that citations are present and generally follow the AMA format (e.g., author names, year, journal, DOI if available).
-    Be lenient with minor formatting issues, such as missing DOIs, incorrect punctuation, or slight deviations in style,
-    as long as the citations are recognizable and provide enough information to locate the source.
+    Be lenient with minor formatting issues as long as the citations are recognizable and provide enough information to locate the source.
 
     3. **Appropriateness for Audience**: Ensure the content is reasonably suitable for the target_audience, which is "{state['target_audience']}".
-    For a doctor audience, the tone should be professional and include some technical terminology, but it does not need to be perfectly tailored.
-    Allow for slight variations in tone (e.g., occasional simpler language) as long as the content is not completely inappropriate
-    (e.g., written for children when the audience is doctors).
+    For a doctor audience, the tone should be professional and include some technical terminology, but slight variations in tone are acceptable.
 
     Validation Guidelines:
     - Mark the article as "Valid" if it meets the above criteria in a general sense, even if there are minor issues.
-    For example, if the content is mostly accurate, has recognizable citations, and is reasonably appropriate for the audience, it should be considered Valid.
-    - Mark the article as "Invalid" only if there are significant issues, such as:
-      - Major factual errors that could mislead or harm (e.g., recommending a dangerous treatment).
-      - Complete absence of citations when references are clearly needed.
-      - Content that is entirely inappropriate for the audience (e.g., written in a childish tone for doctors).
+    - Mark the article as "Invalid" only if there are significant issues (e.g., major factual errors, no citations, completely inappropriate tone).
     - Provide a list of specific issues (if any) to explain why the article is Invalid, or an empty list if Valid.
 
     Return a JSON object with the following structure:
@@ -485,6 +468,39 @@ def route_after_pubmed(state: State) -> str:
 def route_after_check_data(state: State) -> str:
     return "generate_content"
 
+# Celery task for fetching and storing topics
+@celery_app.task(name="main.fetch_and_store_topics_task")
+def fetch_and_store_topics_task():
+    try:
+        aus_tz = pytz.timezone("Australia/Sydney")
+        current_time = datetime.datetime.now(aus_tz)
+        logger.info(f"Fetching topics at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
+
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-search-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
+                    Provide only the list of topics, ranked by popularity, 
+                    that are trending and suitable for creating articles for medical students. 
+                    Just return the topic names, don't say any other thing
+                    also don't add numbering"""
+                }
+            ]
+        )
+        topics = completion.choices[0].message.content.strip().split("\n")
+        topics = [topic.strip() for topic in topics if topic.strip()]
+        
+        logger.info(f"Fetched topics: {topics}")
+        collection.delete_many({})
+        collection.insert_one({"topics": topics, "timestamp": current_time.isoformat()})
+        logger.info(f"Stored {len(topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}")
+        return {"topics": topics}
+    except Exception as e:
+        logger.error(f"Error in task: {str(e)}")
+        raise
+
 # Workflow setup
 workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
@@ -523,10 +539,10 @@ app = workflow.compile()
 # FastAPI app
 fastapi_app = FastAPI()
 
-# --- CORS Middleware ---
+# CORS Middleware
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -536,34 +552,7 @@ fastapi_app.add_middleware(
 class TopicsResponse(BaseModel):
     topics: List[str]
 
-# Celery task for fetching and storing topics
-@celery_app.task(name="fetch_and_store_topics_task")
-def fetch_and_store_topics_task():
-    try:
-        completion = openai_client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
-                    Provide only the list of topics, ranked by popularity, 
-                    that are trending and suitable for creating articles for medical students. 
-                    Do not include explanations or details beyond the topic names.
-                    Just return the topic names, don't say any other thing
-                    also don't add numbering"""
-                }
-            ]
-        )
-        topics = completion.choices[0].message.content.strip().split("\n")
-        topics = [topic.strip() for topic in topics if topic.strip()]
-        collection.delete_many({})
-        collection.insert_one({"topics": topics})
-        logger.info(f"Stored {len(topics)} trending topics in MongoDB")
-        return {"topics": topics}
-    except Exception as e:
-        logger.error(f"Error fetching or storing topics: {str(e)}")
-        raise
-
+# FastAPI endpoints
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     initial_state = {
@@ -600,15 +589,6 @@ async def generate_article(request: dict):
         logger.error(f"Workflow failed: {str(e)} - Total time: {total_time:.4f} seconds")
         logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
-
-@fastapi_app.post("/add-topics/", response_model=TopicsResponse)
-async def fetch_and_store_topics():
-    try:
-        result = fetch_and_store_topics_task.delay().get(timeout=60)
-        return result
-    except Exception as e:
-        logger.error(f"Error in endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching or storing topics: {str(e)}")
 
 @fastapi_app.get("/get-topics/", response_model=TopicsResponse)
 async def get_topics():
