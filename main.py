@@ -213,7 +213,7 @@ def search_perplexity(state: State) -> dict:
                 At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]"""
             }
         ],
-        "max_tokens": 1500,
+        "max_tokens": 3500,
     }
     errors = []
     critical_error = False
