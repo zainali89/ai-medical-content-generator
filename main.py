@@ -343,6 +343,7 @@ def generate_content(state: State) -> dict:
     - Build PubMed URLs from 'doi' or 'pmid' fields only if present; skip if missing.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
     - Verify all facts against the data and correct errors.
+    - Always make sure the links are clickable.
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
