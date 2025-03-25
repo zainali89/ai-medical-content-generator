@@ -12,6 +12,6 @@ nest_asyncio
 celery[redis]  
 pytz
 redis          
-crawl4ai
+firecrawl
 gunicorn
-playwright
+
