@@ -22,6 +22,8 @@ from celery import Celery
 import pytz
 from celery.schedules import crontab
 from fastapi.middleware.cors import CORSMiddleware
+# --- New imports for Firecrawl ---
+from firecrawl import FirecrawlApp
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -48,6 +50,8 @@ load_dotenv()
 PUBMED_API_KEY = os.environ.get("PUBMED_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
+# --- New Firecrawl API Key ---
+FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 MONGODB_URI = os.environ.get(
     "MONGODB_URI",
     "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
@@ -56,14 +60,19 @@ MONGODB_URI = os.environ.get(
 logger.info(f"PUBMED_API_KEY: {'Set' if PUBMED_API_KEY else 'Not set'}")
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
+logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")  # New logging
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
-if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI]):
+if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):  # Updated check
     raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 logger.info("OpenAI client initialized.")
+
+# --- New Firecrawl initialization ---
+firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+logger.info("Firecrawl client initialized.")
 
 # Connect to MongoDB
 try:
@@ -88,7 +97,7 @@ except Exception as e:
 celery_app.conf.timezone = "Australia/Sydney"
 celery_app.conf.beat_schedule = {
     "update-medical-topics-daily": {
-        "task": "main.fetch_and_store_topics_task",  # Updated to use 'main' module name
+        "task": "main.fetch_and_store_topics_task",
         "schedule": crontab(hour=0, minute=0),  # 12 AM AEST/AEDT
         "options": {"timezone": "Australia/Sydney"}
     },
@@ -111,7 +120,7 @@ def timeit(func):
         return result
     return wrapper
 
-# State definition
+# --- Updated State with firecrawl_data ---
 class State(TypedDict):
     user_input_topic: str
     user_input_description: str
@@ -120,12 +129,38 @@ class State(TypedDict):
     pmids: List[str]
     article_data: List[dict]
     perplexity_data: List[str]
+    firecrawl_data: List[str]  # New field for Firecrawl content
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
 
-# Workflow functions
+# --- New function to extract content using Firecrawl ---
+@timeit
+def extract_firecrawl_content(state: State) -> dict:
+    logger.info(f"Extracting Firecrawl content for topic: {state['user_input_topic']}")
+    errors = []
+    firecrawl_data = []
+    
+    # Using the topic to search for relevant content - you might want to modify this URL
+    search_url = f"https://www.ncbi.nlm.nih.gov/search/all/?term={state['user_input_topic'].replace(' ', '+')}"
+    try:
+        scraped = firecrawl.scrape_url(search_url)
+        content = scraped.get('markdown', 'No content found')
+        firecrawl_data.append(f"Firecrawl content from {search_url}: {content}")
+        logger.info(f"Successfully extracted Firecrawl content from {search_url}")
+    except Exception as e:
+        errors.append(f"Firecrawl extraction error: {str(e)}")
+        logger.error(f"Firecrawl extraction failed: {str(e)}")
+    
+    return {
+        "firecrawl_data": firecrawl_data,
+        "errors": errors,
+        "performance_metrics": {},
+        "critical_error": False
+    }
+
+# Existing workflow functions (unchanged unless specified)
 @timeit
 def process_user_input(state: State) -> dict:
     logger.info(f"Processing user input: {state['user_input_topic']}")
@@ -303,6 +338,7 @@ def fetch_article_details(state: State) -> dict:
         "critical_error": critical_error
     }
 
+# --- Updated generate_content with Firecrawl integration ---
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
@@ -314,7 +350,7 @@ def generate_content(state: State) -> dict:
             "critical_error": True
         }
     logger.info(f"Generating content for: {state['user_input_topic']}")
-    if not state["article_data"] and not state["perplexity_data"]:
+    if not state["article_data"] and not state["perplexity_data"] and not state["firecrawl_data"]:
         logger.warning("No data available for content generation")
         return {
             "generated_content": "",
@@ -323,12 +359,19 @@ def generate_content(state: State) -> dict:
             "critical_error": True
         }
     current_date = datetime.date.today()
-    combined_data = "\n".join([f"PubMed: {json.dumps(item)}" for item in state["article_data"]] + 
-                              [f"Perplexity: {item}" for item in state["perplexity_data"] if item])
+    
+    # Separate the data into regular and prioritized sections
+    pubmed_data = "\n".join([f"PubMed: {json.dumps(item)}" for item in state["article_data"]])
+    perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
+    firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
+    
+    # Combine PubMed and Perplexity as regular reference data
+    regular_reference_data = "\n".join(filter(None, [pubmed_data, perplexity_data]))
+    
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims solely on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims solely on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO, Firecrawl scraped content).
     
     Adjust language and detail for the audience:
     - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
@@ -336,12 +379,14 @@ def generate_content(state: State) -> dict:
     - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
     - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
     
-    Use only the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
+    Use the reference data below to support claims, ensuring the article is engaging and accessible. Prioritize the 'Prioritized Reference Data' (Firecrawl content) over the regular 'Reference Data' (PubMed and Perplexity) when generating content. The data includes:
     - **PubMed**: JSON entries (e.g., 'title', 'doi', 'pmid'). Use 'https://doi.org/[DOI]' for DOIs or 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/' for PMIDs.
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
+    - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
     
     Rules for references:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
+    - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
     - Build PubMed URLs from 'doi' or 'pmid' fields only if present; skip if missing.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
     - Verify all facts against the data and correct errors.
@@ -353,7 +398,10 @@ def generate_content(state: State) -> dict:
     
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words
-    - Reference Data: {combined_data}
+    - Reference Data (PubMed & Perplexity): 
+    {regular_reference_data if regular_reference_data else 'No PubMed or Perplexity data available'}
+    - Prioritized Reference Data (Firecrawl): 
+    {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
     """
     errors = []
     critical_error = False
@@ -510,6 +558,7 @@ workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
 workflow.add_node("search_pubmed", search_pubmed)
 workflow.add_node("search_perplexity", search_perplexity)
+workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)  # New node
 workflow.add_node("fetch_article_details", fetch_article_details)
 workflow.add_node("check_data_availability", check_data_availability)
 workflow.add_node("generate_content", generate_content)
@@ -518,6 +567,7 @@ workflow.add_node("validate_content", validate_content)
 workflow.set_entry_point("process_user_input")
 workflow.add_edge("process_user_input", "search_pubmed")
 workflow.add_edge("process_user_input", "search_perplexity")
+workflow.add_edge("process_user_input", "extract_firecrawl_content")  # New edge
 workflow.add_conditional_edges(
     "search_pubmed",
     route_after_pubmed,
@@ -528,6 +578,7 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("fetch_article_details", "check_data_availability")
 workflow.add_edge("search_perplexity", "check_data_availability")
+workflow.add_edge("extract_firecrawl_content", "check_data_availability")  # New edge
 workflow.add_conditional_edges(
     "check_data_availability",
     route_after_check_data,
@@ -552,9 +603,12 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic model for trending topics response
+# Pydantic models
 class TopicsResponse(BaseModel):
     topics: List[str]
+
+class UrlRequest(BaseModel):  # New model
+    url: str
 
 # FastAPI endpoints
 @fastapi_app.post("/generate-article")
@@ -567,6 +621,7 @@ async def generate_article(request: dict):
         "pmids": [],
         "article_data": [],
         "perplexity_data": [],
+        "firecrawl_data": [],  # Added to initial state
         "generated_content": "",
         "errors": [],
         "performance_metrics": {},
@@ -608,6 +663,24 @@ async def get_topics():
     except Exception as e:
         logger.error(f"Error fetching topics from MongoDB: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
+
+# --- New endpoint for Firecrawl extraction ---
+@fastapi_app.post("/extract")
+async def extract_content(request: UrlRequest):
+    try:
+        scraped = firecrawl.scrape_url(request.url)
+        content = scraped.get('markdown', 'No content found')
+        return {
+            "url": request.url,
+            "content": content
+        }
+    except Exception as e:
+        logger.error(f"Extraction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Content extraction failed: {str(e)}")
+
+@fastapi_app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, loop="asyncio")
