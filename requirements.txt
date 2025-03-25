@@ -12,3 +12,4 @@ nest_asyncio
 celery[redis]  
 pytz
 redis          
+crawl4ai
