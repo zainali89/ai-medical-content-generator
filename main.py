@@ -13,6 +13,7 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
 
 # Initialize FastAPI app
 app = FastAPI(title="Web Crawler API", description="Extracts main content from webpages", version="1.0.0")
+fastapi_app = app  # Alias for compatibility with potential misconfiguration
 
 # Define input model for URL
 class UrlRequest(BaseModel):
