@@ -13,3 +13,5 @@ celery[redis]
 pytz
 redis          
 crawl4ai
+gunicorn
+playwright
