@@ -331,8 +331,10 @@ def generate_content(state: State) -> dict:
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims solely on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO).
     
     Adjust language and detail for the audience:
-    - Medical professionals/students: Use technical terms and in-depth analysis.
-    - General public/patients: Use plain language, explain terms, and focus on practical takeaways.
+    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
+    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
+    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
+    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
     
     Use only the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **PubMed**: JSON entries (e.g., 'title', 'doi', 'pmid'). Use 'https://doi.org/[DOI]' for DOIs or 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/' for PMIDs.
@@ -344,6 +346,7 @@ def generate_content(state: State) -> dict:
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
     - Verify all facts against the data and correct errors.
     - Always make sure the links are clickable.
+    - Only include the links in the references.
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
