@@ -26,8 +26,12 @@ if not API_KEY:
     raise ValueError("FIRECRAWL_API_KEY not found in environment variables")
 
 # Initialize Firecrawl with the API key from .env
-firecrawl_app = FirecrawlApp(api_key=API_KEY)
-logger.info("Firecrawl initialized successfully")
+try:
+    firecrawl_app = FirecrawlApp(api_key=API_KEY)
+    logger.info("Firecrawl initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Firecrawl: {str(e)}")
+    raise
 
 # Define input model for URL
 class UrlRequest(BaseModel):
@@ -88,4 +92,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8080))
     logger.info(f"Starting server on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")
