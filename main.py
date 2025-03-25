@@ -8,12 +8,20 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Set Playwright browsers path
+# Set and log Playwright browsers path
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
+logger.info(f"PLAYWRIGHT_BROWSERS_PATH set to: {os.environ['PLAYWRIGHT_BROWSERS_PATH']}")
+
+# Log contents of /ms-playwright at startup
+try:
+    logger.info("Contents of /ms-playwright:")
+    logger.info(os.listdir("/ms-playwright"))
+except Exception as e:
+    logger.error(f"Error listing /ms-playwright: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(title="Web Crawler API", description="Extracts main content from webpages", version="1.0.0")
-fastapi_app = app  # Alias for compatibility with potential misconfiguration
+fastapi_app = app  # Alias for compatibility
 
 # Define input model for URL
 class UrlRequest(BaseModel):
