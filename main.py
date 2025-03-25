@@ -3,6 +3,7 @@ from crawl4ai import AsyncWebCrawler
 from pydantic import BaseModel
 import logging
 import os
+import uvicorn
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -62,10 +63,15 @@ async def extract_main_content_endpoint(request: UrlRequest):
 # Health check endpoint
 @app.get("/health")
 async def health_check():
+    logger.info("Health check requested")
     return {"status": "healthy"}
 
+# Explicitly define the app for ASGI
+fastapi_app = app  # Add this alias to satisfy potential misconfiguration
+
 if __name__ == "__main__":
-    import uvicorn
-    # Use environment variable for port, default to 8000 for local testing
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    # Use environment variable for port, default to 8080 for production compatibility
+    port = int(os.getenv("PORT", 8080))
+    host = "0.0.0.0"  # Bind to all interfaces
+    logger.info(f"Starting app on {host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
