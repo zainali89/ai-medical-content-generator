@@ -3,11 +3,13 @@ from crawl4ai import AsyncWebCrawler
 from pydantic import BaseModel
 import logging
 import os
-import uvicorn
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Set Playwright browsers path
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
 
 # Initialize FastAPI app
 app = FastAPI(title="Web Crawler API", description="Extracts main content from webpages", version="1.0.0")
@@ -66,12 +68,9 @@ async def health_check():
     logger.info("Health check requested")
     return {"status": "healthy"}
 
-# Explicitly define the app for ASGI
-fastapi_app = app  # Add this alias to satisfy potential misconfiguration
-
 if __name__ == "__main__":
-    # Use environment variable for port, default to 8080 for production compatibility
+    import uvicorn
     port = int(os.getenv("PORT", 8080))
-    host = "0.0.0.0"  # Bind to all interfaces
+    host = "0.0.0.0"
     logger.info(f"Starting app on {host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
