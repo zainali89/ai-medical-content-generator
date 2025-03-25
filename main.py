@@ -22,10 +22,12 @@ app = FastAPI(
 # Get the API key from environment variable
 API_KEY = os.getenv("FIRECRAWL_API_KEY")
 if not API_KEY:
+    logger.error("FIRECRAWL_API_KEY not found in environment variables")
     raise ValueError("FIRECRAWL_API_KEY not found in environment variables")
 
 # Initialize Firecrawl with the API key from .env
 firecrawl_app = FirecrawlApp(api_key=API_KEY)
+logger.info("Firecrawl initialized successfully")
 
 # Define input model for URL
 class UrlRequest(BaseModel):
@@ -103,9 +105,13 @@ def extract_main_content_endpoint(request: UrlRequest):
 @app.get("/health")
 def health_check():
     """Check if the API is running."""
+    logger.info("Health check requested")
     return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn
+    # Get port from environment variable or default to 8080
+    port = int(os.getenv("PORT", 8080))
+    logger.info(f"Starting server on port {port}")
     # Run the app with uvicorn for local testing
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
