@@ -12,7 +12,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Initialize FastAPI app (named 'app')
 app = FastAPI(
     title="Firecrawl Main Content Extractor API",
     description="Extracts main content from webpages using Firecrawl",
