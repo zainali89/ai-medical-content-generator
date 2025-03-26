@@ -371,7 +371,9 @@ def generate_content(state: State) -> dict:
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims solely on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO, Firecrawl scraped content).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO, Firecrawl scraped content (User provided URL) ())).
+    
+    IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
     Adjust language and detail for the audience:
     - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
@@ -384,7 +386,7 @@ def generate_content(state: State) -> dict:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
     - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
     
-    Rules for references:
+    Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
     - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
     - Build PubMed URLs from 'doi' or 'pmid' fields only if present; skip if missing.
@@ -392,6 +394,8 @@ def generate_content(state: State) -> dict:
     - Verify all facts against the data and correct errors.
     - Always make sure the links are clickable.
     - Only include the links in the references.
+    - If you're uncertain about any information, indicate this clearly rather than guessing.
+    - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
