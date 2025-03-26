@@ -47,7 +47,7 @@ else:
 load_dotenv()
 
 # API Keys and MongoDB URI from environment variables
-PUBMED_API_KEY = os.environ.get("PUBMED_API_KEY")
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 # --- New Firecrawl API Key ---
@@ -360,18 +360,14 @@ def generate_content(state: State) -> dict:
         }
     current_date = datetime.date.today()
     
-    # Separate the data into regular and prioritized sections
-    pubmed_data = "\n".join([f"PubMed: {json.dumps(item)}" for item in state["article_data"]])
+    # Get data from Perplexity and Firecrawl
     perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
-    
-    # Combine PubMed and Perplexity as regular reference data
-    regular_reference_data = "\n".join(filter(None, [pubmed_data, perplexity_data]))
     
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources (e.g., PubMed, CDC, WHO, Firecrawl scraped content (User provided URL) ())).
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
     
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
@@ -381,15 +377,13 @@ def generate_content(state: State) -> dict:
     - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
     - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
     
-    Use the reference data below to support claims, ensuring the article is engaging and accessible. Prioritize the 'Prioritized Reference Data' (Firecrawl content) over the regular 'Reference Data' (PubMed and Perplexity) when generating content. The data includes:
-    - **PubMed**: JSON entries (e.g., 'title', 'doi', 'pmid'). Use 'https://doi.org/[DOI]' for DOIs or 'https://pubmed.ncbi.nlm.nih.gov/[PMID]/' for PMIDs.
+    Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
     - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
     
     Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
     - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
-    - Build PubMed URLs from 'doi' or 'pmid' fields only if present; skip if missing.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
     - Verify all facts against the data and correct errors.
     - Always make sure the links are clickable.
@@ -402,9 +396,9 @@ def generate_content(state: State) -> dict:
     
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words
-    - Reference Data (PubMed & Perplexity): 
-    {regular_reference_data if regular_reference_data else 'No PubMed or Perplexity data available'}
-    - Prioritized Reference Data (Firecrawl): 
+    - Reference Data (Perplexity): 
+    {perplexity_data if perplexity_data else 'No Perplexity data available'}
+    - Reference Data (Firecrawl): 
     {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
     """
     errors = []
@@ -560,29 +554,17 @@ def fetch_and_store_topics_task():
 # Workflow setup
 workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
-workflow.add_node("search_pubmed", search_pubmed)
 workflow.add_node("search_perplexity", search_perplexity)
-workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)  # New node
-workflow.add_node("fetch_article_details", fetch_article_details)
+workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)
 workflow.add_node("check_data_availability", check_data_availability)
 workflow.add_node("generate_content", generate_content)
 workflow.add_node("validate_content", validate_content)
 
 workflow.set_entry_point("process_user_input")
-workflow.add_edge("process_user_input", "search_pubmed")
 workflow.add_edge("process_user_input", "search_perplexity")
-workflow.add_edge("process_user_input", "extract_firecrawl_content")  # New edge
-workflow.add_conditional_edges(
-    "search_pubmed",
-    route_after_pubmed,
-    {
-        "fetch_article_details": "fetch_article_details",
-        "check_data_availability": "check_data_availability"
-    }
-)
-workflow.add_edge("fetch_article_details", "check_data_availability")
+workflow.add_edge("process_user_input", "extract_firecrawl_content")
 workflow.add_edge("search_perplexity", "check_data_availability")
-workflow.add_edge("extract_firecrawl_content", "check_data_availability")  # New edge
+workflow.add_edge("extract_firecrawl_content", "check_data_availability")
 workflow.add_conditional_edges(
     "check_data_availability",
     route_after_check_data,
@@ -622,8 +604,6 @@ async def generate_article(request: dict):
         "user_input_description": request.get("user_input_description", ""),
         "article_length": request.get("article_length", "Short"),
         "target_audience": request.get("target_audience", "general"),
-        "pmids": [],
-        "article_data": [],
         "perplexity_data": [],
         "firecrawl_data": [],  # Added to initial state
         "generated_content": "",
