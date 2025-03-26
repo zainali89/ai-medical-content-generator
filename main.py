@@ -142,7 +142,7 @@ def timeit(func):
         return result
     return wrapper
 
-# --- Updated State without PubMed-related fields ---
+# --- Updated State to include URLs list ---
 class State(TypedDict):
     user_input_topic: str
     user_input_description: str
@@ -150,28 +150,39 @@ class State(TypedDict):
     target_audience: str
     perplexity_data: List[str]
     firecrawl_data: List[str]
+    reference_urls: List[str]  # New field to store URLs from frontend
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
 
-# --- New function to extract content using Firecrawl ---
+# --- Updated extract_firecrawl_content function ---
 @timeit
 def extract_firecrawl_content(state: State) -> dict:
-    logger.info(f"Extracting Firecrawl content for topic: {state['user_input_topic']}")
+    # Skip if no URLs provided
+    if not state["reference_urls"]:
+        logger.info("No reference URLs provided, skipping Firecrawl extraction")
+        return {
+            "firecrawl_data": [],
+            "errors": [],
+            "performance_metrics": {},
+            "critical_error": False
+        }
+    
+    logger.info(f"Extracting Firecrawl content for {len(state['reference_urls'])} URLs")
     errors = []
     firecrawl_data = []
     
-    # Using the topic to search for relevant content - you might want to modify this URL
-    search_url = f"https://www.ncbi.nlm.nih.gov/search/all/?term={state['user_input_topic'].replace(' ', '+')}"
-    try:
-        scraped = firecrawl.scrape_url(search_url)
-        content = scraped.get('markdown', 'No content found')
-        firecrawl_data.append(f"Firecrawl content from {search_url}: {content}")
-        logger.info(f"Successfully extracted Firecrawl content from {search_url}")
-    except Exception as e:
-        errors.append(f"Firecrawl extraction error: {str(e)}")
-        logger.error(f"Firecrawl extraction failed: {str(e)}")
+    # Process each URL provided from the frontend
+    for url in state["reference_urls"]:
+        try:
+            scraped = firecrawl.scrape_url(url)
+            content = scraped.get('markdown', 'No content found')
+            firecrawl_data.append(f"Firecrawl content from {url}: {content}")
+            logger.info(f"Successfully extracted Firecrawl content from {url}")
+        except Exception as e:
+            errors.append(f"Firecrawl extraction error for {url}: {str(e)}")
+            logger.error(f"Firecrawl extraction failed for {url}: {str(e)}")
     
     return {
         "firecrawl_data": firecrawl_data,
@@ -494,6 +505,7 @@ class UrlRequest(BaseModel):  # New model
     url: str
 
 # FastAPI endpoints
+# --- Updated FastAPI endpoint ---
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     initial_state = {
@@ -501,8 +513,9 @@ async def generate_article(request: dict):
         "user_input_description": request.get("user_input_description", ""),
         "article_length": request.get("article_length", "Short"),
         "target_audience": request.get("target_audience", "general"),
+        "reference_urls": request.get("reference_urls", []),  # Get URLs from request
         "perplexity_data": [],
-        "firecrawl_data": [],  # Added to initial state
+        "firecrawl_data": [],
         "generated_content": "",
         "errors": [],
         "performance_metrics": {},
