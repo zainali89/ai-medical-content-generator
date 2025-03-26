@@ -86,8 +86,10 @@ collection = db['TrendingTopics']
 
 # Celery setup
 try:
-    celery_app = Celery("tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
-    logger.info("Celery app initialized.")
+    # Update Redis URL to use environment variable or fallback to a more flexible configuration
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    celery_app = Celery("tasks", broker=redis_url, backend=redis_url)
+    logger.info(f"Celery app initialized with broker: {redis_url}")
 except Exception as e:
     logger.error(f"Error initializing Celery: {str(e)}")
     raise
@@ -102,6 +104,16 @@ celery_app.conf.beat_schedule = {
 }
 celery_app.conf.update(result_expires=3600)
 logger.info("Celery schedule configured for 12 AM Australia/Sydney time.")
+
+# Add a manual trigger for the task at startup
+@fastapi_app.on_event("startup")
+async def startup_event():
+    try:
+        # Run the task once at startup to ensure we have initial data
+        fetch_and_store_topics_task.delay()
+        logger.info("Triggered initial topic fetch at startup")
+    except Exception as e:
+        logger.error(f"Failed to trigger initial topic fetch: {str(e)}")
 
 # Decorator to time functions
 def timeit(func):
