@@ -229,6 +229,94 @@ def search_perplexity(state: State) -> dict:
 
 
 @timeit
+def generate_content(state: State) -> dict:
+    if state["critical_error"]:
+        logger.error("Critical error detected, skipping content generation")
+        return {
+            "generated_content": "",
+            "errors": ["Critical error occurred, content generation skipped"],
+            "performance_metrics": {},
+            "critical_error": True
+        }
+    logger.info(f"Generating content for: {state['user_input_topic']}")
+    if not state["perplexity_data"] and not state["firecrawl_data"]:
+        logger.warning("No data available for content generation")
+        return {
+            "generated_content": "",
+            "errors": ["No data available"],
+            "performance_metrics": {},
+            "critical_error": True
+        }
+    current_date = datetime.date.today()
+    
+    # Get data from Perplexity and Firecrawl
+    perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
+    firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
+    
+    length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
+    length_words = length_mapping.get(state["article_length"], 500)
+    prompt = f"""
+    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
+    
+    IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
+    
+    Adjust language and detail for the audience:
+    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
+    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
+    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
+    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
+    
+    Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
+    - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
+    - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
+    
+    Rules for references and content:
+    - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
+    - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
+    - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
+    - Verify all facts against the data and correct errors.
+    - Always make sure the links are clickable.
+    - Only include the links in the references.
+    - If you're uncertain about any information, indicate this clearly rather than guessing.
+    - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
+    
+    Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
+    - [Number]. Title (Author(s), Date). Link: [URL]
+    
+    - User Description: {state['user_input_description']}
+    - Length: ~{length_words} words
+    - Reference Data (Perplexity): 
+    {perplexity_data if perplexity_data else 'No Perplexity data available'}
+    - Reference Data (Firecrawl): 
+    {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
+    """
+    errors = []
+    critical_error = False
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[
+                {"role": "system", "content": "You are a medical content writer who ONLY uses provided reference data. Never invent or hallucinate information. If the reference data doesn't cover something, explicitly state that information is limited."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=8000,
+            temperature=0.3  # Lower temperature for more conservative outputs
+        )
+        content = response.choices[0].message.content
+        logger.info("Content generated successfully")
+    except Exception as e:
+        errors.append(f"OpenAI error: {str(e)}")
+        content = ""
+        critical_error = True
+        logger.error(f"Content generation failed: {str(e)}")
+    return {
+        "generated_content": content,
+        "errors": errors,
+        "performance_metrics": {},
+        "critical_error": critical_error
+    }
+
+@timeit
 def validate_content(state: State) -> dict:
     if state["critical_error"]:
         logger.error("Critical error detected, skipping content validation")
@@ -311,14 +399,6 @@ def check_data_availability(state: State) -> dict:
         "critical_error": state["critical_error"]
     }
 
-def route_after_pubmed(state: State) -> str:
-    if state["critical_error"]:
-        logger.error("Critical error detected after search_pubmed, proceeding to check_data_availability")
-        state["article_data"] = []
-        return "check_data_availability"
-    if state["pmids"]:
-        return "fetch_article_details"
-    return "check_data_availability"
 
 def route_after_check_data(state: State) -> str:
     return "generate_content"
