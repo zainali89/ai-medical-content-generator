@@ -263,6 +263,73 @@ def search_perplexity(state: State) -> dict:
     }
 
 
+# --- Updated State to include docs and YouTube links ---
+class State(TypedDict):
+    user_input_topic: str
+    user_input_description: str
+    article_length: str
+    target_audience: str
+    perplexity_data: List[str]
+    firecrawl_data: List[str]
+    reference_urls: List[str]
+    docs_files: List[str]  # New field for document files
+    youtube_links: List[str]  # New field for YouTube links
+    docs_data: List[str]  # Processed data from docs
+    youtube_data: List[str]  # Processed data from YouTube
+    generated_content: str
+    errors: Annotated[List[str], operator.add]
+    performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
+    critical_error: Annotated[bool, lambda x, y: x or y]
+
+# --- New empty function for processing docs ---
+@timeit
+def process_docs(state: State) -> dict:
+    # Skip if no docs provided
+    if not state["docs_files"]:
+        logger.info("No document files provided, skipping docs processing")
+        return {
+            "docs_data": [],
+            "errors": [],
+            "performance_metrics": {},
+            "critical_error": False
+        }
+    
+    logger.info(f"Processing {len(state['docs_files'])} document files")
+    # Empty function for now - will implement later
+    # This will process Word or PDF files
+    
+    return {
+        "docs_data": [],  # Will contain processed data from docs
+        "errors": [],
+        "performance_metrics": {},
+        "critical_error": False
+    }
+
+# --- New empty function for processing YouTube links ---
+@timeit
+def process_youtube_links(state: State) -> dict:
+    # Skip if no YouTube links provided
+    if not state["youtube_links"]:
+        logger.info("No YouTube links provided, skipping YouTube processing")
+        return {
+            "youtube_data": [],
+            "errors": [],
+            "performance_metrics": {},
+            "critical_error": False
+        }
+    
+    logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
+    # Empty function for now - will implement later
+    # This will extract and process content from YouTube videos
+    
+    return {
+        "youtube_data": [],  # Will contain processed data from YouTube
+        "errors": [],
+        "performance_metrics": {},
+        "critical_error": False
+    }
+
+# Update the generate_content function to include the new data sources
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
@@ -274,7 +341,9 @@ def generate_content(state: State) -> dict:
             "critical_error": True
         }
     logger.info(f"Generating content for: {state['user_input_topic']}")
-    if not state["perplexity_data"] and not state["firecrawl_data"]:
+    
+    # Check if we have any data sources
+    if not state["perplexity_data"] and not state["firecrawl_data"] and not state["docs_data"] and not state["youtube_data"]:
         logger.warning("No data available for content generation")
         return {
             "generated_content": "",
@@ -284,9 +353,11 @@ def generate_content(state: State) -> dict:
         }
     current_date = datetime.date.today()
     
-    # Get data from Perplexity and Firecrawl
+    # Get data from all sources
     perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
+    docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
+    youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
@@ -304,10 +375,14 @@ def generate_content(state: State) -> dict:
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
     - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
+    - **Documents**: Content extracted from document files, prefixed with 'Document:'.
+    - **YouTube**: Content transcribed from YouTube videos, prefixed with 'YouTube:'.
     
     Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
     - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
+    - For Document content, cite as "From document analysis" if no specific citation is available.
+    - For YouTube content, cite as "From [YouTube video title]" if available.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
     - Verify all facts against the data and correct errors.
     - Always make sure the links are clickable.
@@ -324,6 +399,10 @@ def generate_content(state: State) -> dict:
     {perplexity_data if perplexity_data else 'No Perplexity data available'}
     - Reference Data (Firecrawl): 
     {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
+    - Reference Data (Documents): 
+    {docs_data if docs_data else 'No Document data available'}
+    - Reference Data (YouTube): 
+    {youtube_data if youtube_data else 'No YouTube data available'}
     """
     errors = []
     critical_error = False
@@ -476,6 +555,8 @@ workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
 workflow.add_node("search_perplexity", search_perplexity)
 workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)
+workflow.add_node("process_docs", process_docs)  # New node
+workflow.add_node("process_youtube_links", process_youtube_links)  # New node
 workflow.add_node("check_data_availability", check_data_availability)
 workflow.add_node("generate_content", generate_content)
 workflow.add_node("validate_content", validate_content)
@@ -483,8 +564,12 @@ workflow.add_node("validate_content", validate_content)
 workflow.set_entry_point("process_user_input")
 workflow.add_edge("process_user_input", "search_perplexity")
 workflow.add_edge("process_user_input", "extract_firecrawl_content")
+workflow.add_edge("process_user_input", "process_docs")  # New edge
+workflow.add_edge("process_user_input", "process_youtube_links")  # New edge
 workflow.add_edge("search_perplexity", "check_data_availability")
 workflow.add_edge("extract_firecrawl_content", "check_data_availability")
+workflow.add_edge("process_docs", "check_data_availability")  # New edge
+workflow.add_edge("process_youtube_links", "check_data_availability")  # New edge
 workflow.add_conditional_edges(
     "check_data_availability",
     route_after_check_data,
@@ -505,7 +590,6 @@ class UrlRequest(BaseModel):  # New model
     url: str
 
 # FastAPI endpoints
-# --- Updated FastAPI endpoint ---
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     initial_state = {
@@ -513,7 +597,9 @@ async def generate_article(request: dict):
         "user_input_description": request.get("user_input_description", ""),
         "article_length": request.get("article_length", "Short"),
         "target_audience": request.get("target_audience", "general"),
-        "reference_urls": request.get("reference_urls", []),  # Get URLs from request
+        "reference_urls": request.get("reference_urls", []),  # URLs for Firecrawl
+        "docs_files": request.get("docs_files", []),  # New parameter for document files
+        "youtube_links": request.get("youtube_links", []),  # New parameter for YouTube links
         "perplexity_data": [],
         "firecrawl_data": [],
         "generated_content": "",
