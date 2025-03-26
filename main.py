@@ -84,6 +84,18 @@ except Exception as e:
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
 
+# FastAPI app initialization - MOVED UP HERE
+fastapi_app = FastAPI()
+
+# CORS Middleware
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Celery setup
 try:
     # Update Redis URL to use environment variable or fallback to a more flexible configuration
@@ -473,18 +485,6 @@ workflow.add_edge("generate_content", "validate_content")
 workflow.add_edge("validate_content", END)
 
 app = workflow.compile()
-
-# FastAPI app
-fastapi_app = FastAPI()
-
-# CORS Middleware
-fastapi_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Pydantic models
 class TopicsResponse(BaseModel):
