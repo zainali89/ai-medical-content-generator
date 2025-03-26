@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 import json
 import requests
-import xml.etree.ElementTree as ET
+# Removing XML parser since it's only used for PubMed
 from typing import TypedDict, List, Dict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
@@ -46,24 +46,22 @@ else:
 
 load_dotenv()
 
-# API Keys and MongoDB URI from environment variables
-
+# API Keys and MongoDB URI from environment variables - removed PubMed API key
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
-# --- New Firecrawl API Key ---
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 MONGODB_URI = os.environ.get(
     "MONGODB_URI",
     "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
 )
 
-logger.info(f"PUBMED_API_KEY: {'Set' if PUBMED_API_KEY else 'Not set'}")
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
-logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")  # New logging
+logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
-if not all([PUBMED_API_KEY, OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):  # Updated check
+# Updated check without PubMed API key
+if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
     raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
 
 # Initialize OpenAI client
@@ -120,16 +118,14 @@ def timeit(func):
         return result
     return wrapper
 
-# --- Updated State with firecrawl_data ---
+# --- Updated State without PubMed-related fields ---
 class State(TypedDict):
     user_input_topic: str
     user_input_description: str
     article_length: str
     target_audience: str
-    pmids: List[str]
-    article_data: List[dict]
     perplexity_data: List[str]
-    firecrawl_data: List[str]  # New field for Firecrawl content
+    firecrawl_data: List[str]
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
@@ -160,69 +156,22 @@ def extract_firecrawl_content(state: State) -> dict:
         "critical_error": False
     }
 
-# Existing workflow functions (unchanged unless specified)
+# Simplified process_user_input without PubMed ESpell
 @timeit
 def process_user_input(state: State) -> dict:
     logger.info(f"Processing user input: {state['user_input_topic']}")
     topic = state["user_input_topic"]
-    espell_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/espell.fcgi"
-    espell_params = {"db": "pubmed", "term": topic.replace(" ", "+"), "api_key": PUBMED_API_KEY}
-    errors = []
-    try:
-        response = requests.get(espell_url, params=espell_params)
-        response.raise_for_status()
-        root = ET.fromstring(response.text)
-        corrected_query = root.find(".//CorrectedQuery")
-        corrected_topic = corrected_query.text.title() if corrected_query is not None else topic
-        logger.info(f"Corrected topic: '{topic}' -> '{corrected_topic}'")
-    except (requests.RequestException, ET.ParseError) as e:
-        errors.append(f"ESpell error: {str(e)}")
-        corrected_topic = topic
-        logger.warning(f"ESpell failed: {str(e)}")
+    # Simply use the topic as is, without PubMed correction
+    corrected_topic = topic.title()
+    logger.info(f"Using topic: '{corrected_topic}'")
     return {
         "user_input_topic": corrected_topic,
-        "errors": errors,
+        "errors": [],
         "performance_metrics": {},
         "critical_error": False
     }
 
-@timeit
-def search_pubmed(state: State) -> dict:
-    logger.info(f"Searching PubMed for: {state['user_input_topic']}")
-    search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    params = {
-        "db": "pubmed",
-        "term": state["user_input_topic"].replace(" ", "+"),
-        "retmode": "json",
-        "retmax": 10,
-        "api_key": PUBMED_API_KEY
-    }
-    errors = []
-    critical_error = False
-    try:
-        response = requests.get(search_url, params=params)
-        response.raise_for_status()
-        pmids = response.json()["esearchresult"]["idlist"]
-        logger.info(f"Found {len(pmids)} PMIDs")
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code in [401, 403]:
-            errors.append("Critical error: Invalid PubMed API key")
-            critical_error = True
-            logger.error("Critical error: Invalid PubMed API key")
-        else:
-            errors.append(f"PubMed search error: {str(e)}")
-            logger.error(f"PubMed search failed: {str(e)}")
-        pmids = []
-    except requests.RequestException as e:
-        errors.append(f"PubMed search error: {str(e)}")
-        pmids = []
-        logger.error(f"PubMed search failed: {str(e)}")
-    return {
-        "pmids": pmids,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": critical_error
-    }
+# Removed search_pubmed and fetch_article_details functions
 
 @timeit
 def search_perplexity(state: State) -> dict:
