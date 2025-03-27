@@ -24,6 +24,13 @@ from celery.schedules import crontab
 from fastapi.middleware.cors import CORSMiddleware
 # --- New imports for Firecrawl ---
 from firecrawl import FirecrawlApp
+# --- New imports for document processing ---
+import PyPDF2
+from docx import Document
+import re
+# --- New imports for YouTube transcript extraction ---
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.formatters import TextFormatter
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -281,7 +288,7 @@ class State(TypedDict):
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
 
-# --- New empty function for processing docs ---
+# --- Function for processing docs (PDF and DOCX) ---
 @timeit
 def process_docs(state: State) -> dict:
     # Skip if no docs provided
@@ -295,17 +302,85 @@ def process_docs(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['docs_files'])} document files")
-    # Empty function for now - will implement later
-    # This will process Word or PDF files
+    docs_data = []
+    errors = []
+    
+    for doc_path in state["docs_files"]:
+        try:
+            # Check file extension to determine processing method
+            if doc_path.lower().endswith('.pdf'):
+                # Process PDF file
+                logger.info(f"Processing PDF file: {doc_path}")
+                text = extract_text_from_pdf(doc_path)
+                if text:
+                    docs_data.append(f"Content from PDF '{os.path.basename(doc_path)}': {text}")
+                    logger.info(f"Successfully extracted text from PDF: {doc_path}")
+                else:
+                    errors.append(f"Failed to extract text from PDF: {doc_path}")
+                    logger.warning(f"No text extracted from PDF: {doc_path}")
+            
+            elif doc_path.lower().endswith('.docx'):
+                # Process DOCX file
+                logger.info(f"Processing DOCX file: {doc_path}")
+                text = extract_text_from_docx(doc_path)
+                if text:
+                    docs_data.append(f"Content from DOCX '{os.path.basename(doc_path)}': {text}")
+                    logger.info(f"Successfully extracted text from DOCX: {doc_path}")
+                else:
+                    errors.append(f"Failed to extract text from DOCX: {doc_path}")
+                    logger.warning(f"No text extracted from DOCX: {doc_path}")
+            
+            else:
+                # Unsupported file type
+                errors.append(f"Unsupported document type: {doc_path}")
+                logger.warning(f"Unsupported document type: {doc_path}")
+        
+        except Exception as e:
+            errors.append(f"Error processing document {doc_path}: {str(e)}")
+            logger.error(f"Error processing document {doc_path}: {str(e)}")
     
     return {
-        "docs_data": [],  # Will contain processed data from docs
-        "errors": [],
+        "docs_data": docs_data,
+        "errors": errors,
         "performance_metrics": {},
         "critical_error": False
     }
 
-# --- New empty function for processing YouTube links ---
+# Helper function to extract text from PDF files
+def extract_text_from_pdf(pdf_path):
+    try:
+        text = ""
+        with open(pdf_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                text += page.extract_text() + "\n"
+        
+        # Clean up the text
+        text = text.strip()
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text)
+        return text
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF {pdf_path}: {str(e)}")
+        return None
+
+# Helper function to extract text from DOCX files
+def extract_text_from_docx(docx_path):
+    try:
+        doc = Document(docx_path)
+        text = ""
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+        
+        # Clean up the text
+        text = text.strip()
+        return text
+    except Exception as e:
+        logger.error(f"Error extracting text from DOCX {docx_path}: {str(e)}")
+        return None
+
+# --- Function for processing YouTube links ---
 @timeit
 def process_youtube_links(state: State) -> dict:
     # Skip if no YouTube links provided
@@ -319,15 +394,71 @@ def process_youtube_links(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
-    # Empty function for now - will implement later
-    # This will extract and process content from YouTube videos
+    youtube_data = []
+    errors = []
+    
+    for yt_link in state["youtube_links"]:
+        try:
+            # Extract video ID from YouTube URL
+            video_id = extract_youtube_video_id(yt_link)
+            
+            if not video_id:
+                errors.append(f"Invalid YouTube URL: {yt_link}")
+                logger.warning(f"Invalid YouTube URL: {yt_link}")
+                continue
+            
+            # Get transcript
+            logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            
+            # Format transcript
+            formatter = TextFormatter()
+            transcript_text = formatter.format_transcript(transcript_list)
+            
+            # Get video title if possible
+            try:
+                # This is a simple way to get the title - in a production app, you might use the YouTube Data API
+                # But for now, we'll just use the video ID as an identifier
+                video_title = f"YouTube video (ID: {video_id})"
+            except Exception as e:
+                video_title = f"YouTube video (ID: {video_id})"
+                logger.warning(f"Could not get title for video {video_id}: {str(e)}")
+            
+            # Add to youtube_data
+            youtube_data.append(f"Transcript from {video_title}: {transcript_text}")
+            logger.info(f"Successfully extracted transcript from {yt_link}")
+            
+        except Exception as e:
+            errors.append(f"Error processing YouTube link {yt_link}: {str(e)}")
+            logger.error(f"Error processing YouTube link {yt_link}: {str(e)}")
     
     return {
-        "youtube_data": [],  # Will contain processed data from YouTube
-        "errors": [],
+        "youtube_data": youtube_data,
+        "errors": errors,
         "performance_metrics": {},
         "critical_error": False
     }
+
+# Helper function to extract YouTube video ID from various URL formats
+def extract_youtube_video_id(url):
+    # Regular expressions to match different YouTube URL formats
+    youtube_regex = (
+        r'(https?://)?(www\.)?'
+        r'(youtube|youtu|youtube-nocookie)\.(com|be)/'
+        r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
+    )
+    
+    match = re.match(youtube_regex, url)
+    if match:
+        return match.group(6)
+    
+    # Handle youtu.be format
+    youtu_be_regex = r'(https?://)?(www\.)?youtu\.be/([^&=%\?]{11})'
+    match = re.match(youtu_be_regex, url)
+    if match:
+        return match.group(3)
+    
+    return None
 
 # Update the generate_content function to include the new data sources
 @timeit
