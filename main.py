@@ -398,6 +398,19 @@ def extract_text_from_docx_url(url):
         return None
 
 # --- Function for processing YouTube links ---
+def extract_youtube_video_id(url):
+    """Extract video ID from YouTube URL using more robust regex"""
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=|youtu.be\/)([^&\n?#]+)',  # Standard and shortened URLs
+        r'(?:youtube\.com\/embed\/)([^&\n?#]+)',  # Embedded URLs
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
 @timeit
 def process_youtube_links(state: State) -> dict:
     # Skip if no YouTube links provided
@@ -424,14 +437,14 @@ def process_youtube_links(state: State) -> dict:
                 logger.warning(f"Invalid YouTube URL: {yt_link}")
                 continue
             
-            # Get transcript with retry logic
+            # Get transcript with retry logic and English as primary language
             max_retries = 3
             retry_delay = 1  # seconds
             
             for attempt in range(max_retries):
                 try:
                     logger.info(f"Fetching transcript for YouTube video ID: {video_id} (Attempt {attempt + 1})")
-                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
@@ -468,27 +481,6 @@ def process_youtube_links(state: State) -> dict:
         "performance_metrics": {},
         "critical_error": False  # YouTube failures are not critical
     }
-
-# Helper function to extract YouTube video ID from various URL formats
-def extract_youtube_video_id(url):
-    # Regular expressions to match different YouTube URL formats
-    youtube_regex = (
-        r'(https?://)?(www\.)?'
-        r'(youtube|youtu|youtube-nocookie)\.(com|be)/'
-        r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
-    )
-    
-    match = re.match(youtube_regex, url)
-    if match:
-        return match.group(6)
-    
-    # Handle youtu.be format
-    youtu_be_regex = r'(https?://)?(www\.)?youtu\.be/([^&=%\?]{11})'
-    match = re.match(youtu_be_regex, url)
-    if match:
-        return match.group(3)
-    
-    return None
 
 # Update the generate_content function to include the new data sources
 @timeit
