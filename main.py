@@ -58,11 +58,13 @@ MONGODB_URI = os.environ.get(
     "MONGODB_URI",
     "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
 )
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
+logger.info(f"REDIS_URL: {REDIS_URL}")
 
 if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
     raise ValueError("One or more required keys are missing.")
@@ -99,12 +101,11 @@ fastapi_app.add_middleware(
 
 # Celery setup
 try:
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    celery_app = Celery("tasks", broker=redis_url, backend=redis_url)
-    logger.info(f"Celery app initialized with broker: {redis_url}")
+    celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
+    logger.info(f"Celery app initialized with broker: {REDIS_URL}")
 except Exception as e:
     logger.error(f"Error initializing Celery: {str(e)}")
-    raise
+    # Don't raise here; allow app to run without Celery if Redis is unavailable
 
 celery_app.conf.timezone = "Australia/Sydney"
 celery_app.conf.beat_schedule = {
@@ -124,6 +125,7 @@ async def startup_event():
         logger.info("Triggered initial topic fetch at startup")
     except Exception as e:
         logger.error(f"Failed to trigger initial topic fetch: {str(e)}")
+        # Log but don't crash the app
 
 # Timeit decorator
 def timeit(func):
@@ -234,6 +236,7 @@ def process_docs(state: State) -> dict:
     
     for doc_url in state["docs_files"]:
         try:
+            doc_url = doc_url.replace(r"\/", "/")  # Unescape URL
             if doc_url.lower().endswith('.pdf'):
                 logger.info(f"Fetching PDF from: {doc_url}")
                 response = requests.get(doc_url, timeout=10)
@@ -301,7 +304,7 @@ def process_youtube_links(state: State) -> dict:
                 logger.warning(f"Invalid YouTube URL: {yt_link}")
                 continue
             
-            logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
+　　　　　　　logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
             formatter = TextFormatter()
             transcript_text = formatter.format_transcript(transcript_list)
@@ -491,18 +494,20 @@ class UrlRequest(BaseModel):
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
     try:
-        payload = request.get("data", {}).get("payload", {})
+        # Adjust to handle nested 'data.payload' structure
+        data = request.get("data", {})
+        payload = data.get("payload", {})
         if not payload:
-            raise HTTPException(status_code=400, detail="Invalid request format: 'payload' missing")
+            logger.warning("No payload found in request, using defaults")
         
         initial_state = {
             "user_input_topic": payload.get("user_input_topic", ""),
             "user_input_description": payload.get("user_input_description", ""),
             "article_length": payload.get("article_length", "Short"),
             "target_audience": payload.get("target_audience", "General Public"),
-            "youtube_links": [link.replace(r"\/", "/") for link in payload.get("youtube_links", [])],  # Unescape URLs
-            "reference_urls": payload.get("reference_urls", []),
-            "docs_files": payload.get("docs_files", []),
+            "youtube_links": [link.replace(r"\/", "/") for link in payload.get("youtube_links", [])],  # Optional
+            "reference_urls": [url.replace(r"\/", "/") for url in payload.get("reference_urls", [])],  # Optional
+            "docs_files": [file.replace(r"\/", "/") for file in payload.get("docs_files", [])],  # Optional
             "perplexity_data": [],
             "firecrawl_data": [],
             "docs_data": [],
@@ -512,6 +517,11 @@ async def generate_article(request: dict):
             "performance_metrics": {},
             "critical_error": False
         }
+        
+        # Validate required fields
+        if not initial_state["user_input_topic"]:
+            raise HTTPException(status_code=400, detail="Missing required field: user_input_topic")
+        
         logger.info(f"Starting workflow with payload: {payload}")
         start_time = time.time()
         final_state = app.invoke(initial_state)
@@ -526,6 +536,8 @@ async def generate_article(request: dict):
             "performance_metrics": final_state["performance_metrics"],
             "errors": final_state["errors"]
         }
+    except HTTPException as e:
+        raise e
     except Exception as e:
         end_time = time.time()
         total_time = end_time - start_time if 'start_time' in locals() else 0
@@ -562,6 +574,7 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, loop="asyncio")
+    # Note: Logs show port 8080, so updating from 8000
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
     server.run()
