@@ -519,11 +519,38 @@ def generate_content(state: State) -> dict:
     
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
-    Adjust language and detail for the audience:
-    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
-    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
-    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
-    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
+    **Adjust language, detail, and structure for the audience:**
+    
+    - **Medical Professionals (Doctors):**
+      - Use precise medical terminology and provide a comprehensive, detailed analysis.
+      - Structure the article to include:
+        - *Introduction to the current state of research on the topic*: Summarise the latest advancements and relevance to clinical practice.
+        - *Key findings from recent studies*: Include statistical data (e.g., sensitivity, specificity, predictive values) from the reference data.
+        - *Diagnostic accuracy*: Detail the performance of technologies or methods, including limitations like inconclusive results.
+        - *Clinical impact*: Discuss implications for patient management and healthcare outcomes.
+        - *Methodologies and validation*: Explain study designs or technologies used to validate findings.
+        - *Tips for doctors advising patients*: Provide practical guidance (e.g., data collection, symptom tracking, workflow integration).
+        - *Considerations for purchasing or recommending technology*: Highlight criteria like regulatory approval or usability.
+        - *Limitations and ethical concerns*: Address algorithm variability, data privacy, or accessibility issues.
+        - *Conclusion*: Summarise key points and future directions for clinical use.
+      - Use language similar to medical journals (e.g., "demonstrates a sensitivity of X%"), citing specific studies from the reference data.
+    
+    - **Students:** Utilize technical medical vocabulary and deliver thorough, educational analysis.
+    
+    - **General Public:** Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
+    
+    - **Patients:**
+      - Use clear, straightforward language, explain medical terms simply (e.g., "irregular heartbeats" instead of "arrhythmias"), and emphasise practical, health-related advice.
+      - Structure the article to include:
+        - *Introduction to the topic in layman’s terms*: Explain the topic’s relevance to everyday health.
+        - *Key findings*: Summarise effectiveness or benefits in simple terms (e.g., "can detect heart issues early").
+        - *Types of devices or interventions*: Describe available options in an accessible way.
+        - *Clinical impact*: Explain how it affects patient health or wellbeing.
+        - *Tips for using technologies effectively*: Offer guidance on usage (e.g., when to use, ensuring accuracy).
+        - *What to report to your doctor*: Suggest tracking symptoms (e.g., dizziness) or device alerts.
+        - *Best value options*: Recommend cost-effective choices if supported by data.
+        - *Conclusion*: Emphasise the role in health management and the need to consult healthcare professionals.
+      - Avoid jargon, focus on reassurance, and include a disclaimer: "This information is for educational purposes only and should not replace professional medical advice."
     
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
