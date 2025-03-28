@@ -3,7 +3,6 @@ import os
 from dotenv import load_dotenv
 import json
 import requests
-# Removing XML parser since it's only used for PubMed
 from typing import TypedDict, List, Dict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
@@ -22,17 +21,15 @@ from celery import Celery
 import pytz
 from celery.schedules import crontab
 from fastapi.middleware.cors import CORSMiddleware
-# --- New imports for Firecrawl ---
 from firecrawl import FirecrawlApp
-# --- New imports for document processing ---
 import PyPDF2
 from docx import Document
 import re
-# --- New imports for YouTube transcript extraction ---
+import io
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
 
-# Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
+# Apply nest_asyncio
 nest_asyncio.apply()
 
 # Set up logging
@@ -53,7 +50,7 @@ else:
 
 load_dotenv()
 
-# API Keys and MongoDB URI from environment variables - removed PubMed API key
+# API Keys and MongoDB URI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
@@ -67,15 +64,12 @@ logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
-# Updated check without PubMed API key
 if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
-    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
+    raise ValueError("One or more required keys are missing.")
 
-# Initialize OpenAI client
+# Initialize clients
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 logger.info("OpenAI client initialized.")
-
-# --- New Firecrawl initialization ---
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 logger.info("Firecrawl client initialized.")
 
@@ -91,7 +85,7 @@ except Exception as e:
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
 
-# FastAPI app initialization - MOVED UP HERE
+# FastAPI app
 fastapi_app = FastAPI()
 
 # CORS Middleware
@@ -105,7 +99,6 @@ fastapi_app.add_middleware(
 
 # Celery setup
 try:
-    # Update Redis URL to use environment variable or fallback to a more flexible configuration
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     celery_app = Celery("tasks", broker=redis_url, backend=redis_url)
     logger.info(f"Celery app initialized with broker: {redis_url}")
@@ -117,24 +110,22 @@ celery_app.conf.timezone = "Australia/Sydney"
 celery_app.conf.beat_schedule = {
     "update-medical-topics-daily": {
         "task": "main.fetch_and_store_topics_task",
-        "schedule": crontab(hour=0, minute=0),  # 12 AM AEST/AEDT
+        "schedule": crontab(hour=0, minute=0),
         "options": {"timezone": "Australia/Sydney"}
     },
 }
 celery_app.conf.update(result_expires=3600)
 logger.info("Celery schedule configured for 12 AM Australia/Sydney time.")
 
-# Add a manual trigger for the task at startup
 @fastapi_app.on_event("startup")
 async def startup_event():
     try:
-        # Run the task once at startup to ensure we have initial data
         fetch_and_store_topics_task.delay()
         logger.info("Triggered initial topic fetch at startup")
     except Exception as e:
         logger.error(f"Failed to trigger initial topic fetch: {str(e)}")
 
-# Decorator to time functions
+# Timeit decorator
 def timeit(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -149,7 +140,7 @@ def timeit(func):
         return result
     return wrapper
 
-# --- Updated State to include URLs list ---
+# State definition
 class State(TypedDict):
     user_input_topic: str
     user_input_description: str
@@ -157,30 +148,26 @@ class State(TypedDict):
     target_audience: str
     perplexity_data: List[str]
     firecrawl_data: List[str]
-    reference_urls: List[str]  # New field to store URLs from frontend
+    reference_urls: List[str]
+    docs_files: List[str]
+    youtube_links: List[str]
+    docs_data: List[str]
+    youtube_data: List[str]
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
 
-# --- Updated extract_firecrawl_content function ---
 @timeit
 def extract_firecrawl_content(state: State) -> dict:
-    # Skip if no URLs provided
     if not state["reference_urls"]:
         logger.info("No reference URLs provided, skipping Firecrawl extraction")
-        return {
-            "firecrawl_data": [],
-            "errors": [],
-            "performance_metrics": {},
-            "critical_error": False
-        }
+        return {"firecrawl_data": [], "errors": [], "performance_metrics": {}, "critical_error": False}
     
     logger.info(f"Extracting Firecrawl content for {len(state['reference_urls'])} URLs")
     errors = []
     firecrawl_data = []
     
-    # Process each URL provided from the frontend
     for url in state["reference_urls"]:
         try:
             scraped = firecrawl.scrape_url(url)
@@ -191,29 +178,15 @@ def extract_firecrawl_content(state: State) -> dict:
             errors.append(f"Firecrawl extraction error for {url}: {str(e)}")
             logger.error(f"Firecrawl extraction failed for {url}: {str(e)}")
     
-    return {
-        "firecrawl_data": firecrawl_data,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": False
-    }
+    return {"firecrawl_data": firecrawl_data, "errors": errors, "performance_metrics": {}, "critical_error": False}
 
-# Simplified process_user_input without PubMed ESpell
 @timeit
 def process_user_input(state: State) -> dict:
     logger.info(f"Processing user input: {state['user_input_topic']}")
     topic = state["user_input_topic"]
-    # Simply use the topic as is, without PubMed correction
     corrected_topic = topic.title()
     logger.info(f"Using topic: '{corrected_topic}'")
-    return {
-        "user_input_topic": corrected_topic,
-        "errors": [],
-        "performance_metrics": {},
-        "critical_error": False
-    }
-
-# Removed search_pubmed and fetch_article_details functions
+    return {"user_input_topic": corrected_topic, "errors": [], "performance_metrics": {}, "critical_error": False}
 
 @timeit
 def search_perplexity(state: State) -> dict:
@@ -223,22 +196,8 @@ def search_perplexity(state: State) -> dict:
     data = {
         "model": "sonar-reasoning",
         "messages": [
-            {
-                "role": "system",
-                "content": """You are a medical research assistant with access to a vast array of medical literature.
-                  Your task is to retrieve the most recent and credible information from authentic sources such as 
-                  peer-reviewed medical journals, official health organization reports, and reputable medical institutions.
-                    Provide detailed and accurate data that can be used to generate informative medical articles."""
-            },
-            {
-                "role": "user",
-                "content": f"""Retrieve the most recent research data on {state['user_input_topic']} based on the description: '{state['user_input_description']}' 
-                from specified authentic sources. Never make up your own links.
-                Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension level of the target_audience: '{state['target_audience']}', 
-                followed by detailed information including key findings, methodologies, relevant statistics, and citations or links to the original sources. 
-                Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article. 
-                At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]"""
-            }
+            {"role": "system", "content": "You are a medical research assistant with access to credible sources. Provide detailed, accurate data from peer-reviewed journals and reputable institutions."},
+            {"role": "user", "content": f"Retrieve recent research on {state['user_input_topic']} based on '{state['user_input_description']}' for {state['target_audience']}. Include summary, findings, and sources as: Title (Author(s), Date). Link: [URL]"}
         ],
         "max_tokens": 3500,
     }
@@ -253,145 +212,82 @@ def search_perplexity(state: State) -> dict:
         if e.response.status_code in [401, 403]:
             errors.append("Critical error: Invalid Perplexity API key")
             critical_error = True
-            logger.error("Critical error: Invalid Perplexity API key")
         else:
             errors.append(f"Perplexity error: {str(e)}")
-            logger.error(f"Perplexity search failed: {str(e)}")
         perplexity_data = []
+        logger.error(f"Perplexity search failed: {str(e)}")
     except requests.RequestException as e:
         errors.append(f"Perplexity error: {str(e)}")
         perplexity_data = []
         logger.error(f"Perplexity search failed: {str(e)}")
-    return {
-        "perplexity_data": perplexity_data,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": critical_error
-    }
+    return {"perplexity_data": perplexity_data, "errors": errors, "performance_metrics": {}, "critical_error": critical_error}
 
-
-# --- Updated State to include docs and YouTube links ---
-class State(TypedDict):
-    user_input_topic: str
-    user_input_description: str
-    article_length: str
-    target_audience: str
-    perplexity_data: List[str]
-    firecrawl_data: List[str]
-    reference_urls: List[str]
-    docs_files: List[str]  # New field for document files
-    youtube_links: List[str]  # New field for YouTube links
-    docs_data: List[str]  # Processed data from docs
-    youtube_data: List[str]  # Processed data from YouTube
-    generated_content: str
-    errors: Annotated[List[str], operator.add]
-    performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
-    critical_error: Annotated[bool, lambda x, y: x or y]
-
-# --- Function for processing docs (PDF and DOCX) ---
 @timeit
 def process_docs(state: State) -> dict:
-    # Skip if no docs provided
     if not state["docs_files"]:
         logger.info("No document files provided, skipping docs processing")
-        return {
-            "docs_data": [],
-            "errors": [],
-            "performance_metrics": {},
-            "critical_error": False
-        }
+        return {"docs_data": [], "errors": [], "performance_metrics": {}, "critical_error": False}
     
     logger.info(f"Processing {len(state['docs_files'])} document files")
     docs_data = []
     errors = []
     
-    for doc_path in state["docs_files"]:
+    for doc_url in state["docs_files"]:
         try:
-            # Check file extension to determine processing method
-            if doc_path.lower().endswith('.pdf'):
-                # Process PDF file
-                logger.info(f"Processing PDF file: {doc_path}")
-                text = extract_text_from_pdf(doc_path)
+            if doc_url.lower().endswith('.pdf'):
+                logger.info(f"Fetching PDF from: {doc_url}")
+                response = requests.get(doc_url, timeout=10)
+                response.raise_for_status()
+                pdf_file = io.BytesIO(response.content)
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                text = ""
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text += page.extract_text() + "\n"
+                text = re.sub(r'\s+', ' ', text.strip())
                 if text:
-                    docs_data.append(f"Content from PDF '{os.path.basename(doc_path)}': {text}")
-                    logger.info(f"Successfully extracted text from PDF: {doc_path}")
+                    docs_data.append(f"Content from PDF '{doc_url}': {text}")
+                    logger.info(f"Successfully extracted text from PDF: {doc_url}")
                 else:
-                    errors.append(f"Failed to extract text from PDF: {doc_path}")
-                    logger.warning(f"No text extracted from PDF: {doc_path}")
+                    errors.append(f"No text extracted from PDF: {doc_url}")
+                    logger.warning(f"No text extracted from PDF: {doc_url}")
             
-            elif doc_path.lower().endswith('.docx'):
-                # Process DOCX file
-                logger.info(f"Processing DOCX file: {doc_path}")
-                text = extract_text_from_docx(doc_path)
+            elif doc_url.lower().endswith('.docx'):
+                logger.info(f"Fetching DOCX from: {doc_url}")
+                response = requests.get(doc_url, timeout=10)
+                response.raise_for_status()
+                docx_file = io.BytesIO(response.content)
+                doc = Document(docx_file)
+                text = ""
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        text += para.text + "\n"
+                text = text.strip()
                 if text:
-                    docs_data.append(f"Content from DOCX '{os.path.basename(doc_path)}': {text}")
-                    logger.info(f"Successfully extracted text from DOCX: {doc_path}")
+                    docs_data.append(f"Content from DOCX '{doc_url}': {text}")
+                    logger.info(f"Successfully extracted text from DOCX: {doc_url}")
                 else:
-                    errors.append(f"Failed to extract text from DOCX: {doc_path}")
-                    logger.warning(f"No text extracted from DOCX: {doc_path}")
+                    errors.append(f"No text extracted from DOCX: {doc_url}")
+                    logger.warning(f"No text extracted from DOCX: {doc_url}")
             
             else:
-                # Unsupported file type
-                errors.append(f"Unsupported document type: {doc_path}")
-                logger.warning(f"Unsupported document type: {doc_path}")
+                errors.append(f"Unsupported document type: {doc_url}")
+                logger.warning(f"Unsupported document type: {doc_url}")
         
+        except requests.RequestException as e:
+            errors.append(f"Error fetching document {doc_url}: {str(e)}")
+            logger.error(f"Error fetching document {doc_url}: {str(e)}")
         except Exception as e:
-            errors.append(f"Error processing document {doc_path}: {str(e)}")
-            logger.error(f"Error processing document {doc_path}: {str(e)}")
+            errors.append(f"Error processing document {doc_url}: {str(e)}")
+            logger.error(f"Error processing document {doc_url}: {str(e)}")
     
-    return {
-        "docs_data": docs_data,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": False
-    }
+    return {"docs_data": docs_data, "errors": errors, "performance_metrics": {}, "critical_error": False}
 
-# Helper function to extract text from PDF files
-def extract_text_from_pdf(pdf_path):
-    try:
-        text = ""
-        with open(pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
-                text += page.extract_text() + "\n"
-        
-        # Clean up the text
-        text = text.strip()
-        # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
-        return text
-    except Exception as e:
-        logger.error(f"Error extracting text from PDF {pdf_path}: {str(e)}")
-        return None
-
-# Helper function to extract text from DOCX files
-def extract_text_from_docx(docx_path):
-    try:
-        doc = Document(docx_path)
-        text = ""
-        for para in doc.paragraphs:
-            text += para.text + "\n"
-        
-        # Clean up the text
-        text = text.strip()
-        return text
-    except Exception as e:
-        logger.error(f"Error extracting text from DOCX {docx_path}: {str(e)}")
-        return None
-
-# --- Function for processing YouTube links ---
 @timeit
 def process_youtube_links(state: State) -> dict:
-    # Skip if no YouTube links provided
     if not state["youtube_links"]:
         logger.info("No YouTube links provided, skipping YouTube processing")
-        return {
-            "youtube_data": [],
-            "errors": [],
-            "performance_metrics": {},
-            "critical_error": False
-        }
+        return {"youtube_data": [], "errors": [], "performance_metrics": {}, "critical_error": False}
     
     logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
     youtube_data = []
@@ -399,32 +295,17 @@ def process_youtube_links(state: State) -> dict:
     
     for yt_link in state["youtube_links"]:
         try:
-            # Extract video ID from YouTube URL
             video_id = extract_youtube_video_id(yt_link)
-            
             if not video_id:
                 errors.append(f"Invalid YouTube URL: {yt_link}")
                 logger.warning(f"Invalid YouTube URL: {yt_link}")
                 continue
             
-            # Get transcript
             logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            
-            # Format transcript
             formatter = TextFormatter()
             transcript_text = formatter.format_transcript(transcript_list)
-            
-            # Get video title if possible
-            try:
-                # This is a simple way to get the title - in a production app, you might use the YouTube Data API
-                # But for now, we'll just use the video ID as an identifier
-                video_title = f"YouTube video (ID: {video_id})"
-            except Exception as e:
-                video_title = f"YouTube video (ID: {video_id})"
-                logger.warning(f"Could not get title for video {video_id}: {str(e)}")
-            
-            # Add to youtube_data
+            video_title = f"YouTube video (ID: {video_id})"
             youtube_data.append(f"Transcript from {video_title}: {transcript_text}")
             logger.info(f"Successfully extracted transcript from {yt_link}")
             
@@ -432,59 +313,35 @@ def process_youtube_links(state: State) -> dict:
             errors.append(f"Error processing YouTube link {yt_link}: {str(e)}")
             logger.error(f"Error processing YouTube link {yt_link}: {str(e)}")
     
-    return {
-        "youtube_data": youtube_data,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": False
-    }
+    return {"youtube_data": youtube_data, "errors": errors, "performance_metrics": {}, "critical_error": False}
 
-# Helper function to extract YouTube video ID from various URL formats
 def extract_youtube_video_id(url):
-    # Regular expressions to match different YouTube URL formats
     youtube_regex = (
         r'(https?://)?(www\.)?'
         r'(youtube|youtu|youtube-nocookie)\.(com|be)/'
         r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
     )
-    
     match = re.match(youtube_regex, url)
     if match:
         return match.group(6)
-    
-    # Handle youtu.be format
     youtu_be_regex = r'(https?://)?(www\.)?youtu\.be/([^&=%\?]{11})'
     match = re.match(youtu_be_regex, url)
     if match:
         return match.group(3)
-    
     return None
 
-# Update the generate_content function to include the new data sources
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
         logger.error("Critical error detected, skipping content generation")
-        return {
-            "generated_content": "",
-            "errors": ["Critical error occurred, content generation skipped"],
-            "performance_metrics": {},
-            "critical_error": True
-        }
-    logger.info(f"Generating content for: {state['user_input_topic']}")
+        return {"generated_content": "", "errors": ["Critical error occurred"], "performance_metrics": {}, "critical_error": True}
     
-    # Check if we have any data sources
-    if not state["perplexity_data"] and not state["firecrawl_data"] and not state["docs_data"] and not state["youtube_data"]:
+    if not any([state["perplexity_data"], state["firecrawl_data"], state["docs_data"], state["youtube_data"]]):
         logger.warning("No data available for content generation")
-        return {
-            "generated_content": "",
-            "errors": ["No data available"],
-            "performance_metrics": {},
-            "critical_error": True
-        }
-    current_date = datetime.date.today()
+        return {"generated_content": "", "errors": ["No data available"], "performance_metrics": {}, "critical_error": True}
     
-    # Get data from all sources
+    logger.info(f"Generating content for: {state['user_input_topic']}")
+    current_date = datetime.date.today()
     perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
@@ -493,59 +350,32 @@ def generate_content(state: State) -> dict:
     length_mapping = {"Short": 500, "Medium": 1000, "Long": 1500}
     length_words = length_mapping.get(state["article_length"], 500)
     prompt = f"""
-    Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
-    
-    IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
-    
-    Adjust language and detail for the audience:
-    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
-    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
-    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
-    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
-    
-    Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
-    - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
-    - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
-    - **Documents**: Content extracted from document files, prefixed with 'Document:'.
-    - **YouTube**: Content transcribed from YouTube videos, prefixed with 'YouTube:'.
-    
-    Rules for references and content:
-    - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
-    - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
-    - For Document content, cite as "From document analysis" if no specific citation is available.
-    - For YouTube content, cite as "From [YouTube video title]" if available.
-    - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
-    - Verify all facts against the data and correct errors.
-    - Always make sure the links are clickable.
-    - Only include the links in the references.
-    - If you're uncertain about any information, indicate this clearly rather than guessing.
-    - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
-    
-    Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
-    - [Number]. Title (Author(s), Date). Link: [URL]
-    
-    - User Description: {state['user_input_description']}
+    Write a referenced, fact-checked, neutral article about {state['user_input_topic']} for {state['target_audience']} using Australian English. Base all claims STRICTLY on provided data. If data is missing, state it explicitly. Adjust language:
+    - Doctors: Precise medical terms, detailed analysis.
+    - Students: Technical vocab, educational focus.
+    - General Public: Simple words, clear explanations.
+    - Patients: Clear language, practical advice.
+    Use: Perplexity (Sources: Title (Author(s), Date). Link: [URL]), Firecrawl (prefix: Firecrawl content from [URL]), Documents (prefix: Document:), YouTube (prefix: YouTube:).
+    Rules: Use exact URLs, cite "From document analysis" or "From [YouTube title]" if no URL, verify facts, clickable links only from data, note uncertainty. End with references: [Number]. Title (Author(s), Date). Link: [URL].
+    - Description: {state['user_input_description']}
     - Length: ~{length_words} words
-    - Reference Data (Perplexity): 
-    {perplexity_data if perplexity_data else 'No Perplexity data available'}
-    - Reference Data (Firecrawl): 
-    {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
-    - Reference Data (Documents): 
-    {docs_data if docs_data else 'No Document data available'}
-    - Reference Data (YouTube): 
-    {youtube_data if youtube_data else 'No YouTube data available'}
+    - Data: 
+      Perplexity: {perplexity_data or 'None'}
+      Firecrawl: {firecrawl_data or 'None'}
+      Documents: {docs_data or 'None'}
+      YouTube: {youtube_data or 'None'}
     """
     errors = []
     critical_error = False
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini", 
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a medical content writer who ONLY uses provided reference data. Never invent or hallucinate information. If the reference data doesn't cover something, explicitly state that information is limited."},
+                {"role": "system", "content": "Use only provided data. Never invent info. State limits if data is incomplete."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=8000,
-            temperature=0.3  # Lower temperature for more conservative outputs
+            temperature=0.3
         )
         content = response.choices[0].message.content
         logger.info("Content generated successfully")
@@ -554,60 +384,27 @@ def generate_content(state: State) -> dict:
         content = ""
         critical_error = True
         logger.error(f"Content generation failed: {str(e)}")
-    return {
-        "generated_content": content,
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": critical_error
-    }
+    return {"generated_content": content, "errors": errors, "performance_metrics": {}, "critical_error": critical_error}
 
 @timeit
 def validate_content(state: State) -> dict:
     if state["critical_error"]:
-        logger.error("Critical error detected, skipping content validation")
-        return {
-            "errors": ["Critical error occurred, validation skipped"],
-            "performance_metrics": {},
-            "critical_error": True
-        }
-    logger.info("Validating content")
+        logger.error("Critical error detected, skipping validation")
+        return {"errors": ["Critical error occurred"], "performance_metrics": {}, "critical_error": True}
+    
     if not state["generated_content"]:
         logger.warning("No content to validate")
-        return {
-            "errors": ["No content available"],
-            "performance_metrics": {},
-            "critical_error": True
-        }
-    current_date = datetime.date.today()
+        return {"errors": ["No content available"], "performance_metrics": {}, "critical_error": True}
+    
+    logger.info("Validating content")
     validation_prompt = f"""
-    You are a medical content validator tasked with reviewing a medical article for general quality.
-    Your goal is to determine if the article is suitable for use, with a focus on being reasonably lenient while ensuring basic standards are met.
-    Below is the article to validate:
-
-    Article Content:
+    Validate this article for quality:
     {state['generated_content']}
-
-    Validate the article based on the following criteria, but apply these criteria with flexibility to avoid being overly strict:
-
-    1. **General Accuracy**: Check if the content is broadly accurate and consistent with common medical knowledge on the topic "{state['user_input_topic']}".
-    Allow for minor inaccuracies or generalizations as long as they do not fundamentally misrepresent the topic or pose a risk of harm.
-
-    2. **AMA Citation Format**: Verify that citations are present and generally follow the AMA format (e.g., author names, year, journal, DOI if available).
-    Be lenient with minor formatting issues as long as the citations are recognizable and provide enough information to locate the source.
-
-    3. **Appropriateness for Audience**: Ensure the content is reasonably suitable for the target_audience, which is "{state['target_audience']}".
-    For a doctor audience, the tone should be professional and include some technical terminology, but slight variations in tone are acceptable.
-
-    Validation Guidelines:
-    - Mark the article as "Valid" if it meets the above criteria in a general sense, even if there are minor issues.
-    - Mark the article as "Invalid" only if there are significant issues (e.g., major factual errors, no citations, completely inappropriate tone).
-    - Provide a list of specific issues (if any) to explain why the article is Invalid, or an empty list if Valid.
-
-    Return a JSON object with the following structure:
-    {{
-        "status": "Valid" or "Invalid",
-        "issues": ["list of specific issues or empty list if Valid"]
-    }}
+    Criteria (be lenient):
+    1. Accuracy: Broadly consistent with medical knowledge on "{state['user_input_topic']}".
+    2. Citations: Present, roughly AMA format.
+    3. Audience: Suitable for "{state['target_audience']}".
+    Return JSON: {{"status": "Valid" or "Invalid", "issues": ["list"]}}
     """
     errors = []
     critical_error = False
@@ -628,54 +425,30 @@ def validate_content(state: State) -> dict:
         errors.append(f"Validation error: {str(e)}")
         critical_error = True
         logger.error(f"Validation failed: {str(e)}")
-    return {
-        "errors": errors,
-        "performance_metrics": {},
-        "critical_error": critical_error
-    }
+    return {"errors": errors, "performance_metrics": {}, "critical_error": critical_error}
 
 def check_data_availability(state: State) -> dict:
     logger.info("Checking data availability")
-    if state["critical_error"]:
-        logger.warning("Critical error detected, but proceeding with available data")
-    return {
-        "errors": [],
-        "performance_metrics": {},
-        "critical_error": state["critical_error"]
-    }
-
+    return {"errors": [], "performance_metrics": {}, "critical_error": state["critical_error"]}
 
 def route_after_check_data(state: State) -> str:
     return "generate_content"
 
-# Celery task for fetching and storing topics
 @celery_app.task(name="main.fetch_and_store_topics_task")
 def fetch_and_store_topics_task():
     try:
         aus_tz = pytz.timezone("Australia/Sydney")
         current_time = datetime.datetime.now(aus_tz)
-        logger.info(f"Fetching topics at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
-
+        logger.info(f"Fetching topics at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         completion = openai_client.chat.completions.create(
             model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
-                    Provide only the list of topics, ranked by popularity, 
-                    that are trending and suitable for creating articles for medical students. 
-                    Just return the topic names, don't say any other thing
-                    also don't add numbering"""
-                }
-            ]
+            messages=[{"role": "user", "content": "List 5 trending medical topics for students, no numbering."}]
         )
-        topics = completion.choices[0].message.content.strip().split("\n")
-        topics = [topic.strip() for topic in topics if topic.strip()]
-        
+        topics = [t.strip() for t in completion.choices[0].message.content.strip().split("\n") if t.strip()]
         logger.info(f"Fetched topics: {topics}")
         collection.delete_many({})
         collection.insert_one({"topics": topics, "timestamp": current_time.isoformat()})
-        logger.info(f"Stored {len(topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}")
+        logger.info(f"Stored {len(topics)} topics")
         return {"topics": topics}
     except Exception as e:
         logger.error(f"Error in task: {str(e)}")
@@ -686,8 +459,8 @@ workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
 workflow.add_node("search_perplexity", search_perplexity)
 workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)
-workflow.add_node("process_docs", process_docs)  # New node
-workflow.add_node("process_youtube_links", process_youtube_links)  # New node
+workflow.add_node("process_docs", process_docs)
+workflow.add_node("process_youtube_links", process_youtube_links)
 workflow.add_node("check_data_availability", check_data_availability)
 workflow.add_node("generate_content", generate_content)
 workflow.add_node("validate_content", validate_content)
@@ -695,19 +468,13 @@ workflow.add_node("validate_content", validate_content)
 workflow.set_entry_point("process_user_input")
 workflow.add_edge("process_user_input", "search_perplexity")
 workflow.add_edge("process_user_input", "extract_firecrawl_content")
-workflow.add_edge("process_user_input", "process_docs")  # New edge
-workflow.add_edge("process_user_input", "process_youtube_links")  # New edge
+workflow.add_edge("process_user_input", "process_docs")
+workflow.add_edge("process_user_input", "process_youtube_links")
 workflow.add_edge("search_perplexity", "check_data_availability")
 workflow.add_edge("extract_firecrawl_content", "check_data_availability")
-workflow.add_edge("process_docs", "check_data_availability")  # New edge
-workflow.add_edge("process_youtube_links", "check_data_availability")  # New edge
-workflow.add_conditional_edges(
-    "check_data_availability",
-    route_after_check_data,
-    {
-        "generate_content": "generate_content"
-    }
-)
+workflow.add_edge("process_docs", "check_data_availability")
+workflow.add_edge("process_youtube_links", "check_data_availability")
+workflow.add_conditional_edges("check_data_availability", route_after_check_data, {"generate_content": "generate_content"})
 workflow.add_edge("generate_content", "validate_content")
 workflow.add_edge("validate_content", END)
 
@@ -717,30 +484,36 @@ app = workflow.compile()
 class TopicsResponse(BaseModel):
     topics: List[str]
 
-class UrlRequest(BaseModel):  # New model
+class UrlRequest(BaseModel):
     url: str
 
 # FastAPI endpoints
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
-    initial_state = {
-        "user_input_topic": request.get("user_input_topic", ""),
-        "user_input_description": request.get("user_input_description", ""),
-        "article_length": request.get("article_length", "Short"),
-        "target_audience": request.get("target_audience", "general"),
-        "reference_urls": request.get("reference_urls", []),  # URLs for Firecrawl
-        "docs_files": request.get("docs_files", []),  # New parameter for document files
-        "youtube_links": request.get("youtube_links", []),  # New parameter for YouTube links
-        "perplexity_data": [],
-        "firecrawl_data": [],
-        "generated_content": "",
-        "errors": [],
-        "performance_metrics": {},
-        "critical_error": False
-    }
-    logger.info("Starting workflow execution")
-    start_time = time.time()
     try:
+        payload = request.get("data", {}).get("payload", {})
+        if not payload:
+            raise HTTPException(status_code=400, detail="Invalid request format: 'payload' missing")
+        
+        initial_state = {
+            "user_input_topic": payload.get("user_input_topic", ""),
+            "user_input_description": payload.get("user_input_description", ""),
+            "article_length": payload.get("article_length", "Short"),
+            "target_audience": payload.get("target_audience", "General Public"),
+            "youtube_links": [link.replace(r"\/", "/") for link in payload.get("youtube_links", [])],  # Unescape URLs
+            "reference_urls": payload.get("reference_urls", []),
+            "docs_files": payload.get("docs_files", []),
+            "perplexity_data": [],
+            "firecrawl_data": [],
+            "docs_data": [],
+            "youtube_data": [],
+            "generated_content": "",
+            "errors": [],
+            "performance_metrics": {},
+            "critical_error": False
+        }
+        logger.info(f"Starting workflow with payload: {payload}")
+        start_time = time.time()
         final_state = app.invoke(initial_state)
         end_time = time.time()
         total_time = end_time - start_time
@@ -755,7 +528,7 @@ async def generate_article(request: dict):
         }
     except Exception as e:
         end_time = time.time()
-        total_time = end_time - start_time
+        total_time = end_time - start_time if 'start_time' in locals() else 0
         logger.error(f"Workflow failed: {str(e)} - Total time: {total_time:.4f} seconds")
         logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
@@ -768,23 +541,18 @@ async def get_topics():
             topics = document['topics']
             logger.info(f"Retrieved {len(topics)} topics from MongoDB")
             return {"topics": topics}
-        else:
-            logger.warning("No topics found in MongoDB")
-            raise HTTPException(status_code=404, detail="No topics found in the database.")
+        logger.warning("No topics found in MongoDB")
+        raise HTTPException(status_code=404, detail="No topics found.")
     except Exception as e:
-        logger.error(f"Error fetching topics from MongoDB: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
+        logger.error(f"Error fetching topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching topics: {str(e)}")
 
-# --- New endpoint for Firecrawl extraction ---
 @fastapi_app.post("/extract")
 async def extract_content(request: UrlRequest):
     try:
         scraped = firecrawl.scrape_url(request.url)
         content = scraped.get('markdown', 'No content found')
-        return {
-            "url": request.url,
-            "content": content
-        }
+        return {"url": request.url, "content": content}
     except Exception as e:
         logger.error(f"Extraction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Content extraction failed: {str(e)}")
