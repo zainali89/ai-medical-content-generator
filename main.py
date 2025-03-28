@@ -28,6 +28,7 @@ from firecrawl import FirecrawlApp
 import PyPDF2
 from docx import Document
 import re
+import io
 # --- New imports for YouTube transcript extraction ---
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
@@ -305,39 +306,39 @@ def process_docs(state: State) -> dict:
     docs_data = []
     errors = []
     
-    for doc_path in state["docs_files"]:
+    for doc_url in state["docs_files"]:
         try:
-            # Check file extension to determine processing method
-            if doc_path.lower().endswith('.pdf'):
-                # Process PDF file
-                logger.info(f"Processing PDF file: {doc_path}")
-                text = extract_text_from_pdf(doc_path)
+            # Determine file type from URL
+            if doc_url.lower().endswith('.pdf'):
+                # Process PDF from URL
+                logger.info(f"Processing PDF from URL: {doc_url}")
+                text = extract_text_from_pdf_url(doc_url)
                 if text:
-                    docs_data.append(f"Content from PDF '{os.path.basename(doc_path)}': {text}")
-                    logger.info(f"Successfully extracted text from PDF: {doc_path}")
+                    docs_data.append(f"Content from PDF '{os.path.basename(doc_url)}': {text}")
+                    logger.info(f"Successfully extracted text from PDF URL: {doc_url}")
                 else:
-                    errors.append(f"Failed to extract text from PDF: {doc_path}")
-                    logger.warning(f"No text extracted from PDF: {doc_path}")
+                    errors.append(f"Failed to extract text from PDF URL: {doc_url}")
+                    logger.warning(f"No text extracted from PDF URL: {doc_url}")
             
-            elif doc_path.lower().endswith('.docx'):
-                # Process DOCX file
-                logger.info(f"Processing DOCX file: {doc_path}")
-                text = extract_text_from_docx(doc_path)
+            elif doc_url.lower().endswith('.docx'):
+                # Process DOCX from URL
+                logger.info(f"Processing DOCX from URL: {doc_url}")
+                text = extract_text_from_docx_url(doc_url)
                 if text:
-                    docs_data.append(f"Content from DOCX '{os.path.basename(doc_path)}': {text}")
-                    logger.info(f"Successfully extracted text from DOCX: {doc_path}")
+                    docs_data.append(f"Content from DOCX '{os.path.basename(doc_url)}': {text}")
+                    logger.info(f"Successfully extracted text from DOCX URL: {doc_url}")
                 else:
-                    errors.append(f"Failed to extract text from DOCX: {doc_path}")
-                    logger.warning(f"No text extracted from DOCX: {doc_path}")
+                    errors.append(f"Failed to extract text from DOCX URL: {doc_url}")
+                    logger.warning(f"No text extracted from DOCX URL: {doc_url}")
             
             else:
                 # Unsupported file type
-                errors.append(f"Unsupported document type: {doc_path}")
-                logger.warning(f"Unsupported document type: {doc_path}")
+                errors.append(f"Unsupported document type: {doc_url}")
+                logger.warning(f"Unsupported document type: {doc_url}")
         
         except Exception as e:
-            errors.append(f"Error processing document {doc_path}: {str(e)}")
-            logger.error(f"Error processing document {doc_path}: {str(e)}")
+            errors.append(f"Error processing document {doc_url}: {str(e)}")
+            logger.error(f"Error processing document {doc_url}: {str(e)}")
     
     return {
         "docs_data": docs_data,
@@ -346,15 +347,22 @@ def process_docs(state: State) -> dict:
         "critical_error": False
     }
 
-# Helper function to extract text from PDF files
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf_url(url):
     try:
+        # Fetch the PDF from the URL
+        logger.info(f"Fetching PDF from: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+
+        # Load PDF into memory
+        pdf_file = io.BytesIO(response.content)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+        # Extract text from all pages
         text = ""
-        with open(pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
-                text += page.extract_text() + "\n"
+        for page_num in range(len(pdf_reader.pages)):
+            page = pdf_reader.pages[page_num]
+            text += page.extract_text() + "\n"
         
         # Clean up the text
         text = text.strip()
@@ -362,22 +370,31 @@ def extract_text_from_pdf(pdf_path):
         text = re.sub(r'\s+', ' ', text)
         return text
     except Exception as e:
-        logger.error(f"Error extracting text from PDF {pdf_path}: {str(e)}")
+        logger.error(f"Error extracting text from PDF URL {url}: {str(e)}")
         return None
 
-# Helper function to extract text from DOCX files
-def extract_text_from_docx(docx_path):
+def extract_text_from_docx_url(url):
     try:
-        doc = Document(docx_path)
+        # Fetch the DOCX from the URL
+        logger.info(f"Fetching DOCX from: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+
+        # Load DOCX into memory
+        docx_file = io.BytesIO(response.content)
+        doc = Document(docx_file)
+
+        # Extract text from all paragraphs
         text = ""
         for para in doc.paragraphs:
-            text += para.text + "\n"
-        
+            if para.text.strip():  # Only add non-empty paragraphs
+                text += para.text + "\n"
+
         # Clean up the text
         text = text.strip()
         return text
     except Exception as e:
-        logger.error(f"Error extracting text from DOCX {docx_path}: {str(e)}")
+        logger.error(f"Error extracting text from DOCX URL {url}: {str(e)}")
         return None
 
 # --- Function for processing YouTube links ---
