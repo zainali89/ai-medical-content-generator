@@ -424,9 +424,21 @@ def process_youtube_links(state: State) -> dict:
                 logger.warning(f"Invalid YouTube URL: {yt_link}")
                 continue
             
-            # Get transcript
-            logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            # Get transcript with retry logic
+            max_retries = 3
+            retry_delay = 1  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Fetching transcript for YouTube video ID: {video_id} (Attempt {attempt + 1})")
+                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    logger.warning(f"Attempt {attempt + 1} failed, retrying in {retry_delay} seconds: {str(e)}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
             
             # Format transcript
             formatter = TextFormatter()
@@ -434,8 +446,6 @@ def process_youtube_links(state: State) -> dict:
             
             # Get video title if possible
             try:
-                # This is a simple way to get the title - in a production app, you might use the YouTube Data API
-                # But for now, we'll just use the video ID as an identifier
                 video_title = f"YouTube video (ID: {video_id})"
             except Exception as e:
                 video_title = f"YouTube video (ID: {video_id})"
@@ -446,14 +456,17 @@ def process_youtube_links(state: State) -> dict:
             logger.info(f"Successfully extracted transcript from {yt_link}")
             
         except Exception as e:
-            errors.append(f"Error processing YouTube link {yt_link}: {str(e)}")
-            logger.error(f"Error processing YouTube link {yt_link}: {str(e)}")
+            warning = f"Warning: Could not retrieve transcript for {yt_link}. Continuing with other sources. Error: {str(e)}"
+            errors.append(warning)
+            logger.warning(warning)
+            # Don't set critical_error for YouTube failures
+            continue
     
     return {
         "youtube_data": youtube_data,
         "errors": errors,
         "performance_metrics": {},
-        "critical_error": False
+        "critical_error": False  # YouTube failures are not critical
     }
 
 # Helper function to extract YouTube video ID from various URL formats
