@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.proxies import WebshareProxyConfig
+from youtube_transcript_api.proxies import GenericProxyConfig
 from pydantic import BaseModel
 from typing import List, Dict
 import uvicorn
 import os
+import requests
+import random
 
 # Create FastAPI instance with the name fastapi_app
 fastapi_app = FastAPI(title="YouTube Transcript API", description="Fetch YouTube video transcripts")
@@ -18,13 +20,13 @@ class TranscriptEntry(BaseModel):
 class TranscriptResponse(BaseModel):
     transcript: List[TranscriptEntry]
 
-# Reusable main function to fetch transcript
+# Reusable main function to fetch transcript with proxy rotation
 def fetch_transcript(video_id: str) -> List[Dict]:
     """
-    Fetch the transcript for a given YouTube video ID using Webshare proxies.
+    Fetch the transcript for a given YouTube video ID using Webshare proxies with rotation.
     
     Args:
-        video_id (str): The YouTube video ID (e.g., 'HFfXvfFe9F8')
+        video_id (str): The YouTube video ID (e.g., 'C7OQHIpDlvA')
     
     Returns:
         List[Dict]: List of transcript entries with start, duration, and text
@@ -33,15 +35,30 @@ def fetch_transcript(video_id: str) -> List[Dict]:
         Exception: If transcript fetching fails
     """
     try:
-        # Hardcode Webshare proxy credentials
-        proxy_username = "pgdvzgig"
-        proxy_password = "d55gle2cxicz"
+        # Webshare API key (provided by the user)
+        WEBSHARE_API_KEY = "5qh3dvjmdskwl9zwxkfe7rylnxdgbwpobi7kkvzp"
 
+        # Fetch proxy list from Webshare
+        response = requests.get(
+            "https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&per_page=25",
+            headers={"Authorization": f"Token {WEBSHARE_API_KEY}"}
+        )
+        response.raise_for_status()  # Raise an error for bad responses
+        proxy_list = response.json()["results"]
+
+        if not proxy_list:
+            raise Exception("No proxies available from Webshare")
+
+        # Select a random proxy from the list
+        proxy = random.choice(proxy_list)
+        proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['proxy_address']}:{proxy['port']}"
+
+        # Debug: Print the selected proxy (remove in production)
+        print(f"Using proxy: {proxy_url}")
+
+        # Initialize YouTubeTranscriptApi with the selected proxy
         ytt_api = YouTubeTranscriptApi(
-            proxy_config=WebshareProxyConfig(
-                proxy_username=proxy_username,
-                proxy_password=proxy_password,
-            )
+            proxy_config=GenericProxyConfig(http_url=proxy_url, https_url=proxy_url)
         )
         transcript = ytt_api.get_transcript(video_id)
         return transcript
