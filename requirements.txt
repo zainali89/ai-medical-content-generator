@@ -16,4 +16,3 @@ firecrawl
 gunicorn
 PyPDF2
 youtube_transcript_api
-YouTubeTranscriptApi
