@@ -4,9 +4,10 @@ from youtube_transcript_api.proxies import WebshareProxyConfig
 from pydantic import BaseModel
 from typing import List, Dict
 import uvicorn
+import os
 
-# Create FastAPI instance
-app = FastAPI(title="YouTube Transcript API", description="Fetch YouTube video transcripts")
+# Create FastAPI instance with the name fastapi_app
+fastapi_app = FastAPI(title="YouTube Transcript API", description="Fetch YouTube video transcripts")
 
 # Define a response model for the transcript
 class TranscriptEntry(BaseModel):
@@ -48,12 +49,12 @@ def fetch_transcript(video_id: str) -> List[Dict]:
         raise Exception(f"Error fetching transcript: {str(e)}")
 
 # Define the root endpoint
-@app.get("/")
+@fastapi_app.get("/")
 async def root():
     return {"message": "Welcome to the YouTube Transcript API. Use /transcript/{video_id} to fetch a transcript."}
 
 # Define the transcript endpoint
-@app.get("/transcript/{video_id}", response_model=TranscriptResponse)
+@fastapi_app.get("/transcript/{video_id}", response_model=TranscriptResponse)
 async def get_transcript(video_id: str):
     try:
         transcript = fetch_transcript(video_id)
@@ -65,8 +66,11 @@ async def get_transcript(video_id: str):
 def main():
     """
     Run the FastAPI application using Uvicorn programmatically.
+    Use the PORT environment variable if available (required for DigitalOcean),
+    otherwise default to 8000 for local development.
     """
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))  # Use PORT from env, default to 8000
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()
