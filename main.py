@@ -3,7 +3,6 @@ import os
 from dotenv import load_dotenv
 import json
 import requests
-# Removing XML parser since it's only used for PubMed
 from typing import TypedDict, List, Dict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
@@ -18,12 +17,9 @@ from pymongo.server_api import ServerApi
 from pydantic import BaseModel
 import nest_asyncio
 import uvicorn
-from celery import Celery
-import pytz
-from celery.schedules import crontab
 from fastapi.middleware.cors import CORSMiddleware
-# --- New imports for Firecrawl ---
 from firecrawl import FirecrawlApp
+import pytz
 
 # Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
 nest_asyncio.apply()
@@ -46,7 +42,7 @@ else:
 
 load_dotenv()
 
-# API Keys and MongoDB URI from environment variables - removed PubMed API key
+# API Keys and MongoDB URI from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
@@ -60,7 +56,6 @@ logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
 logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
-# Updated check without PubMed API key
 if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
     raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
 
@@ -68,7 +63,7 @@ if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY])
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 logger.info("OpenAI client initialized.")
 
-# --- New Firecrawl initialization ---
+# Initialize Firecrawl
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 logger.info("Firecrawl client initialized.")
 
@@ -84,7 +79,7 @@ except Exception as e:
 db = client_mongo['TopMedicalArticles']
 collection = db['TrendingTopics']
 
-# FastAPI app initialization - MOVED UP HERE
+# FastAPI app initialization
 fastapi_app = FastAPI()
 
 # CORS Middleware
@@ -95,37 +90,6 @@ fastapi_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Celery setup
-try:
-    # Update Redis URL to use environment variable or fallback to a more flexible configuration
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    celery_app = Celery("tasks", broker=redis_url, backend=redis_url)
-    logger.info(f"Celery app initialized with broker: {redis_url}")
-except Exception as e:
-    logger.error(f"Error initializing Celery: {str(e)}")
-    raise
-
-celery_app.conf.timezone = "Australia/Sydney"
-celery_app.conf.beat_schedule = {
-    "update-medical-topics-daily": {
-        "task": "main.fetch_and_store_topics_task",
-        "schedule": crontab(hour=0, minute=0),  # 12 AM AEST/AEDT
-        "options": {"timezone": "Australia/Sydney"}
-    },
-}
-celery_app.conf.update(result_expires=3600)
-logger.info("Celery schedule configured for 12 AM Australia/Sydney time.")
-
-# Add a manual trigger for the task at startup
-@fastapi_app.on_event("startup")
-async def startup_event():
-    try:
-        # Run the task once at startup to ensure we have initial data
-        fetch_and_store_topics_task.delay()
-        logger.info("Triggered initial topic fetch at startup")
-    except Exception as e:
-        logger.error(f"Failed to trigger initial topic fetch: {str(e)}")
 
 # Decorator to time functions
 def timeit(func):
@@ -142,7 +106,48 @@ def timeit(func):
         return result
     return wrapper
 
-# --- Updated State to include URLs list ---
+# Function to fetch and store topics (replacing Celery task)
+async def fetch_and_store_topics():
+    try:
+        aus_tz = pytz.timezone("Australia/Sydney")
+        current_time = datetime.datetime.now(aus_tz)
+        logger.info(f"Fetching topics at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
+
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-search-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
+                    Provide only the list of topics, ranked by popularity, 
+                    that are trending and suitable for creating articles for medical students. 
+                    Just return the topic names, don't say any other thing
+                    also don't add numbering"""
+                }
+            ]
+        )
+        topics = completion.choices[0].message.content.strip().split("\n")
+        topics = [topic.strip() for topic in topics if topic.strip()]
+        
+        logger.info(f"Fetched topics: {topics}")
+        collection.delete_many({})
+        collection.insert_one({"topics": topics, "timestamp": current_time.isoformat()})
+        logger.info(f"Stored {len(topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}")
+        return {"topics": topics}
+    except Exception as e:
+        logger.error(f"Error fetching and storing topics: {str(e)}")
+        raise
+
+# Run task on startup
+@fastapi_app.on_event("startup")
+async def startup_event():
+    try:
+        await fetch_and_store_topics()
+        logger.info("Initial topic fetch completed at startup")
+    except Exception as e:
+        logger.error(f"Failed to fetch initial topics: {str(e)}")
+
+# State definition for LangGraph
 class State(TypedDict):
     user_input_topic: str
     user_input_description: str
@@ -150,16 +155,19 @@ class State(TypedDict):
     target_audience: str
     perplexity_data: List[str]
     firecrawl_data: List[str]
-    reference_urls: List[str]  # New field to store URLs from frontend
+    reference_urls: List[str]
+    docs_files: List[str]
+    youtube_links: List[str]
+    docs_data: List[str]
+    youtube_data: List[str]
     generated_content: str
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
 
-# --- Updated extract_firecrawl_content function ---
+# LangGraph node functions
 @timeit
 def extract_firecrawl_content(state: State) -> dict:
-    # Skip if no URLs provided
     if not state["reference_urls"]:
         logger.info("No reference URLs provided, skipping Firecrawl extraction")
         return {
@@ -173,7 +181,6 @@ def extract_firecrawl_content(state: State) -> dict:
     errors = []
     firecrawl_data = []
     
-    # Process each URL provided from the frontend
     for url in state["reference_urls"]:
         try:
             scraped = firecrawl.scrape_url(url)
@@ -191,12 +198,10 @@ def extract_firecrawl_content(state: State) -> dict:
         "critical_error": False
     }
 
-# Simplified process_user_input without PubMed ESpell
 @timeit
 def process_user_input(state: State) -> dict:
     logger.info(f"Processing user input: {state['user_input_topic']}")
     topic = state["user_input_topic"]
-    # Simply use the topic as is, without PubMed correction
     corrected_topic = topic.title()
     logger.info(f"Using topic: '{corrected_topic}'")
     return {
@@ -205,8 +210,6 @@ def process_user_input(state: State) -> dict:
         "performance_metrics": {},
         "critical_error": False
     }
-
-# Removed search_pubmed and fetch_article_details functions
 
 @timeit
 def search_perplexity(state: State) -> dict:
@@ -262,29 +265,8 @@ def search_perplexity(state: State) -> dict:
         "critical_error": critical_error
     }
 
-
-# --- Updated State to include docs and YouTube links ---
-class State(TypedDict):
-    user_input_topic: str
-    user_input_description: str
-    article_length: str
-    target_audience: str
-    perplexity_data: List[str]
-    firecrawl_data: List[str]
-    reference_urls: List[str]
-    docs_files: List[str]  # New field for document files
-    youtube_links: List[str]  # New field for YouTube links
-    docs_data: List[str]  # Processed data from docs
-    youtube_data: List[str]  # Processed data from YouTube
-    generated_content: str
-    errors: Annotated[List[str], operator.add]
-    performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
-    critical_error: Annotated[bool, lambda x, y: x or y]
-
-# --- New empty function for processing docs ---
 @timeit
 def process_docs(state: State) -> dict:
-    # Skip if no docs provided
     if not state["docs_files"]:
         logger.info("No document files provided, skipping docs processing")
         return {
@@ -295,20 +277,15 @@ def process_docs(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['docs_files'])} document files")
-    # Empty function for now - will implement later
-    # This will process Word or PDF files
-    
     return {
-        "docs_data": [],  # Will contain processed data from docs
+        "docs_data": [],
         "errors": [],
         "performance_metrics": {},
         "critical_error": False
     }
 
-# --- New empty function for processing YouTube links ---
 @timeit
 def process_youtube_links(state: State) -> dict:
-    # Skip if no YouTube links provided
     if not state["youtube_links"]:
         logger.info("No YouTube links provided, skipping YouTube processing")
         return {
@@ -319,17 +296,13 @@ def process_youtube_links(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
-    # Empty function for now - will implement later
-    # This will extract and process content from YouTube videos
-    
     return {
-        "youtube_data": [],  # Will contain processed data from YouTube
+        "youtube_data": [],
         "errors": [],
         "performance_metrics": {},
         "critical_error": False
     }
 
-# Update the generate_content function to include the new data sources
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
@@ -342,7 +315,6 @@ def generate_content(state: State) -> dict:
         }
     logger.info(f"Generating content for: {state['user_input_topic']}")
     
-    # Check if we have any data sources
     if not state["perplexity_data"] and not state["firecrawl_data"] and not state["docs_data"] and not state["youtube_data"]:
         logger.warning("No data available for content generation")
         return {
@@ -353,7 +325,6 @@ def generate_content(state: State) -> dict:
         }
     current_date = datetime.date.today()
     
-    # Get data from all sources
     perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
@@ -408,13 +379,13 @@ def generate_content(state: State) -> dict:
     critical_error = False
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini", 
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a medical content writer who ONLY uses provided reference data. Never invent or hallucinate information. If the reference data doesn't cover something, explicitly state that information is limited."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=8000,
-            temperature=0.3  # Lower temperature for more conservative outputs
+            temperature=0.3
         )
         content = response.choices[0].message.content
         logger.info("Content generated successfully")
@@ -513,50 +484,16 @@ def check_data_availability(state: State) -> dict:
         "critical_error": state["critical_error"]
     }
 
-
 def route_after_check_data(state: State) -> str:
     return "generate_content"
 
-# Celery task for fetching and storing topics
-@celery_app.task(name="main.fetch_and_store_topics_task")
-def fetch_and_store_topics_task():
-    try:
-        aus_tz = pytz.timezone("Australia/Sydney")
-        current_time = datetime.datetime.now(aus_tz)
-        logger.info(f"Fetching topics at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
-
-        completion = openai_client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": """Search the web and current online discussions to identify the 5 most talked-about medical topics today.
-                    Provide only the list of topics, ranked by popularity, 
-                    that are trending and suitable for creating articles for medical students. 
-                    Just return the topic names, don't say any other thing
-                    also don't add numbering"""
-                }
-            ]
-        )
-        topics = completion.choices[0].message.content.strip().split("\n")
-        topics = [topic.strip() for topic in topics if topic.strip()]
-        
-        logger.info(f"Fetched topics: {topics}")
-        collection.delete_many({})
-        collection.insert_one({"topics": topics, "timestamp": current_time.isoformat()})
-        logger.info(f"Stored {len(topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}")
-        return {"topics": topics}
-    except Exception as e:
-        logger.error(f"Error in task: {str(e)}")
-        raise
-
-# Workflow setup
+# LangGraph workflow setup
 workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
 workflow.add_node("search_perplexity", search_perplexity)
 workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)
-workflow.add_node("process_docs", process_docs)  # New node
-workflow.add_node("process_youtube_links", process_youtube_links)  # New node
+workflow.add_node("process_docs", process_docs)
+workflow.add_node("process_youtube_links", process_youtube_links)
 workflow.add_node("check_data_availability", check_data_availability)
 workflow.add_node("generate_content", generate_content)
 workflow.add_node("validate_content", validate_content)
@@ -564,12 +501,12 @@ workflow.add_node("validate_content", validate_content)
 workflow.set_entry_point("process_user_input")
 workflow.add_edge("process_user_input", "search_perplexity")
 workflow.add_edge("process_user_input", "extract_firecrawl_content")
-workflow.add_edge("process_user_input", "process_docs")  # New edge
-workflow.add_edge("process_user_input", "process_youtube_links")  # New edge
+workflow.add_edge("process_user_input", "process_docs")
+workflow.add_edge("process_user_input", "process_youtube_links")
 workflow.add_edge("search_perplexity", "check_data_availability")
 workflow.add_edge("extract_firecrawl_content", "check_data_availability")
-workflow.add_edge("process_docs", "check_data_availability")  # New edge
-workflow.add_edge("process_youtube_links", "check_data_availability")  # New edge
+workflow.add_edge("process_docs", "check_data_availability")
+workflow.add_edge("process_youtube_links", "check_data_availability")
 workflow.add_conditional_edges(
     "check_data_availability",
     route_after_check_data,
@@ -586,7 +523,7 @@ app = workflow.compile()
 class TopicsResponse(BaseModel):
     topics: List[str]
 
-class UrlRequest(BaseModel):  # New model
+class UrlRequest(BaseModel):
     url: str
 
 # FastAPI endpoints
@@ -597,9 +534,9 @@ async def generate_article(request: dict):
         "user_input_description": request.get("user_input_description", ""),
         "article_length": request.get("article_length", "Short"),
         "target_audience": request.get("target_audience", "general"),
-        "reference_urls": request.get("reference_urls", []),  # URLs for Firecrawl
-        "docs_files": request.get("docs_files", []),  # New parameter for document files
-        "youtube_links": request.get("youtube_links", []),  # New parameter for YouTube links
+        "reference_urls": request.get("reference_urls", []),
+        "docs_files": request.get("docs_files", []),
+        "youtube_links": request.get("youtube_links", []),
         "perplexity_data": [],
         "firecrawl_data": [],
         "generated_content": "",
@@ -636,15 +573,23 @@ async def get_topics():
         if document and 'topics' in document:
             topics = document['topics']
             logger.info(f"Retrieved {len(topics)} topics from MongoDB")
-            return {"topics": topics}
         else:
-            logger.warning("No topics found in MongoDB")
-            raise HTTPException(status_code=404, detail="No topics found in the database.")
+            logger.warning("No topics found in MongoDB - returning empty list")
+            topics = []
+        return {"topics": topics}
     except Exception as e:
         logger.error(f"Error fetching topics from MongoDB: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
 
-# --- New endpoint for Firecrawl extraction ---
+@fastapi_app.post("/fetch-topics")
+async def trigger_fetch_topics():
+    try:
+        result = await fetch_and_store_topics()
+        return {"status": "success", "topics": result["topics"]}
+    except Exception as e:
+        logger.error(f"Failed to fetch topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch topics: {str(e)}")
+
 @fastapi_app.post("/extract")
 async def extract_content(request: UrlRequest):
     try:
