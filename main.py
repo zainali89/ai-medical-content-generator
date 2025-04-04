@@ -629,7 +629,7 @@ async def generate_article(request: dict):
         logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
 
-@fastapi_app.get("/get-topics/", response_model=TopicsResponse)
+@fastapi_app.get("/get-topics", response_model=TopicsResponse)
 async def get_topics():
     try:
         document = collection.find_one()
