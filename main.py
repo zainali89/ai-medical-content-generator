@@ -12,6 +12,7 @@ import datetime
 from functools import wraps
 import traceback
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse  # Added for cache control
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from pydantic import BaseModel
@@ -163,7 +164,7 @@ async def startup_event():
             hour=0,  # 12 AM
             minute=0,
             second=0,
-            timezone=pytz.timezone("Australia/Sydney")  # Set the timezone to Australia/Sydney
+            timezone=pytz.timezone("Australia/Sydney")
         )
         scheduler.start()
         logger.info("Scheduled topic fetching every day at 12 AM Australia/Sydney time")
@@ -593,14 +594,30 @@ async def generate_article(request: dict):
 @fastapi_app.get("/get-topics", response_model=TopicsResponse)
 async def get_topics():
     try:
+        logger.info("Attempting to fetch topics from MongoDB")
         document = collection.find_one({}, sort=[("timestamp", -1)])
-        if document and 'topics' in document:
-            topics = document['topics']
-            logger.info(f"Retrieved {len(topics)} topics from MongoDB")
-        else:
-            logger.warning("No topics found in MongoDB - returning empty list")
-            topics = []
-        return {"topics": topics}
+        logger.info(f"Retrieved document from MongoDB: {document}")
+
+        if not document:
+            logger.warning("No documents found in MongoDB - returning empty list")
+            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+
+        if 'topics' not in document:
+            logger.error("Document found but 'topics' field is missing - returning empty list")
+            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+
+        if 'timestamp' not in document:
+            logger.warning("Document found but 'timestamp' field is missing")
+
+        topics = document['topics']
+        timestamp = document.get('timestamp', 'unknown')
+
+        if not isinstance(topics, list):
+            logger.error(f"Topics field is not a list: {topics} - returning empty list")
+            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+
+        logger.info(f"Successfully retrieved {len(topics)} topics from MongoDB with timestamp {timestamp}")
+        return JSONResponse(content={"topics": topics}, headers={"Cache-Control": "no-store"})
     except Exception as e:
         logger.error(f"Error fetching topics from MongoDB: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
