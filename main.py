@@ -22,6 +22,9 @@ from firecrawl import FirecrawlApp
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Load environment variables from .env file
+load_dotenv()
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -30,10 +33,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Initialize MongoDB client
+mongo_client = MongoClient(os.getenv("MONGO_URI"), server_api=ServerApi('1'))
+db = mongo_client["medical_topics_db"]  # Replace with your database name
+collection = db["topics"]  # Replace with your collection name
+
 # Initialize FastAPI app
 fastapi_app = FastAPI()
 
-# Keep the existing fetch_and_store_topics function
+# Fetch and store topics function
 async def fetch_and_store_topics():
     try:
         aus_tz = pytz.timezone("Australia/Sydney")
@@ -68,7 +79,7 @@ async def fetch_and_store_topics():
 # Create a scheduler
 scheduler = AsyncIOScheduler()
 
-# Modify the startup event to add the scheduled task using the fastapi_app instance
+# Startup event handler
 @fastapi_app.on_event("startup")
 async def startup_event():
     try:
@@ -84,12 +95,6 @@ async def startup_event():
         logger.error(f"Failed to fetch initial topics or set up scheduler: {str(e)}")
         raise
 
-# Note: Ensure openai_client and collection are defined elsewhere in your code
-# Example initialization (uncomment and configure as needed):
-# openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-# mongo_client = MongoClient(os.getenv("MONGO_URI"), server_api=ServerApi('1'))
-# db = mongo_client["your_database"]
-# collection = db["topics"]
-
+# Run the app locally
 if __name__ == "__main__":
     uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
