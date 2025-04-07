@@ -12,7 +12,7 @@ import datetime
 from functools import wraps
 import traceback
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse  # Added for cache control
+from fastapi.responses import JSONResponse
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from pydantic import BaseModel
@@ -80,7 +80,7 @@ except Exception as e:
     raise ValueError(f"Error connecting to MongoDB: {str(e)}")
 
 db = client_mongo['TopMedicalArticles']
-collection = db['TrendingTopics']
+collection = db['topics']  # Changed to 'topics'
 
 # FastAPI app initialization
 fastapi_app = FastAPI()
