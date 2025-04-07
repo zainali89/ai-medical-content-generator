@@ -132,19 +132,30 @@ async def fetch_and_store_topics():
                 }
             ]
         )
+        # Split the response into individual topics
         topics = completion.choices[0].message.content.strip().split("\n")
-        topics = [topic.strip() for topic in topics if topic.strip()]
+        # Clean up each topic: remove leading Markdown list markers (e.g., "- ", "* ", "1. ") and extra whitespace
+        cleaned_topics = []
+        for topic in topics:
+            topic = topic.strip()  # Remove leading/trailing whitespace
+            # Remove common Markdown list markers
+            for marker in ['- ', '* ', '1. ', '2. ', '3. ', '4. ', '5. ']:
+                if topic.startswith(marker):
+                    topic = topic[len(marker):].strip()
+                    break
+            if topic:  # Only add non-empty topics
+                cleaned_topics.append(topic)
         
-        logger.info(f"Fetched topics: {topics}")
+        logger.info(f"Fetched and cleaned topics: {cleaned_topics}")
         
         # Clear old topics and insert new ones
         deleted_count = collection.delete_many({}).deleted_count
         logger.info(f"Deleted {deleted_count} old topic documents from MongoDB")
         
-        insert_result = collection.insert_one({"topics": topics, "timestamp": current_time.isoformat()})
-        logger.info(f"Stored {len(topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}, ID: {insert_result.inserted_id}")
+        insert_result = collection.insert_one({"topics": cleaned_topics, "timestamp": current_time.isoformat()})
+        logger.info(f"Stored {len(cleaned_topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}, ID: {insert_result.inserted_id}")
         
-        return {"topics": topics}
+        return {"topics": cleaned_topics}
     except Exception as e:
         logger.error(f"Error fetching and storing topics: {str(e)}")
         raise
