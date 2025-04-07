@@ -20,6 +20,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Keep the existing fetch_and_store_topics function
 async def fetch_and_store_topics():
