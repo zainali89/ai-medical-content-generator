@@ -22,7 +22,15 @@ from firecrawl import FirecrawlApp
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Initialize FastAPI app with the name 'fastapi_app'
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize FastAPI app
 fastapi_app = FastAPI()
 
 # Keep the existing fetch_and_store_topics function
@@ -74,11 +82,14 @@ async def startup_event():
         logger.info("Scheduled topic fetching every 1 minute")
     except Exception as e:
         logger.error(f"Failed to fetch initial topics or set up scheduler: {str(e)}")
+        raise
 
-# Note: Ensure logger, openai_client, and collection are defined elsewhere in your code
-# For example:
-# logger = logging.getLogger(__name__)
-# openai_client = OpenAI(api_key="your-api-key")
-# mongo_client = MongoClient("your-mongo-uri")
-# db = mongo_client["your-db-name"]
-# collection = db["your-collection-name"]
+# Note: Ensure openai_client and collection are defined elsewhere in your code
+# Example initialization (uncomment and configure as needed):
+# openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# mongo_client = MongoClient(os.getenv("MONGO_URI"), server_api=ServerApi('1'))
+# db = mongo_client["your_database"]
+# collection = db["topics"]
+
+if __name__ == "__main__":
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
