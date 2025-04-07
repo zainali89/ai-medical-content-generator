@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import uuid  # Added for cache-busting
 
 # Load environment variables from .env file
 load_dotenv()
@@ -51,12 +52,9 @@ async def fetch_and_store_topics():
         current_time = datetime.datetime.now(aus_tz)
         logger.info(f"Starting topic fetch at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
 
-        # Modify the prompt to ensure fresh data
-        prompt = f"""As of {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}, search the web and current online discussions to identify the 5 most talked-about medical topics today.
-                    Provide only the list of topics, ranked by popularity, 
-                    that are trending and suitable for creating articles for medical students. 
-                    Just return the topic names, don't say any other thing
-                    also don't add numbering"""
+        # Add a unique identifier to the prompt to avoid caching
+        unique_id = str(uuid.uuid4())
+        prompt = f"""As of {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}, perform a fresh, real-time search of the web and current online discussions to identify the 5 most talked-about medical topics today. Focus on trends that have emerged or gained significant attention in the last 24 hours. This request is unique (ID: {unique_id}) to ensure a new search. Provide only the list of topics, ranked by popularity, that are trending and suitable for creating articles for medical students. Just return the topic names, don't say any other thing, and don't add numbering."""
         
         completion = openai_client.chat.completions.create(
             model="gpt-4o-search-preview",
@@ -103,8 +101,8 @@ async def startup_event():
         logger.error(f"Failed to fetch initial topics or set up scheduler: {str(e)}")
         raise
 
-# Add an endpoint to retrieve the latest topics
-@fastapi_app.get("/topics")
+# Updated endpoint to match the request URL
+@fastapi_app.get("/get-topics")
 async def get_topics():
     try:
         latest_topics = collection.find_one({}, sort=[("timestamp", -1)])  # Get the most recent document
