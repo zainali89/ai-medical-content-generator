@@ -35,47 +35,75 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler()]
 )
 
-# Note: load_dotenv() is not needed in DigitalOcean App Platform as variables are injected at runtime
-# load_dotenv()  # Comment out or remove this line
+logger.info("Starting main.py")
 
 # API Keys and MongoDB URI from environment variables
+logger.info("Loading environment variables")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
-MONGODB_URI = os.environ.get("MONGO_URI")  # Changed from MONGODB_URI to MONGO_URI
+MONGODB_URI = os.environ.get("MONGO_URI")
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
-logger.info(f"MONGO_URI: {'Set' if MONGODB_URI else 'Not set'}")  # Updated log message
+logger.info(f"MONGO_URI: {'Set' if MONGODB_URI else 'Not set'}")
 
-if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
-    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
+# Check for missing environment variables
+missing_vars = []
+if not OPENAI_API_KEY:
+    missing_vars.append("OPENAI_API_KEY")
+if not PERPLEXITY_API_KEY:
+    missing_vars.append("PERPLEXITY_API_KEY")
+if not FIRECRAWL_API_KEY:
+    missing_vars.append("FIRECRAWL_API_KEY")
+if not MONGODB_URI:
+    missing_vars.append("MONGO_URI")
+
+if missing_vars:
+    logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
+    raise ValueError(f"One or more required keys are missing: {', '.join(missing_vars)}")
 
 # Initialize OpenAI client
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
-logger.info("OpenAI client initialized.")
+try:
+    logger.info("Initializing OpenAI client")
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info("OpenAI client initialized.")
+except Exception as e:
+    logger.error(f"Failed to initialize OpenAI client: {str(e)}")
+    logger.error(f"Stack trace: {traceback.format_exc()}")
+    raise
 
 # Initialize Firecrawl
-firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
-logger.info("Firecrawl client initialized.")
+try:
+    logger.info("Initializing Firecrawl client")
+    firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+    logger.info("Firecrawl client initialized.")
+except Exception as e:
+    logger.error(f"Failed to initialize Firecrawl client: {str(e)}")
+    logger.error(f"Stack trace: {traceback.format_exc()}")
+    raise
 
 # Connect to MongoDB
 try:
+    logger.info("Connecting to MongoDB")
     client_mongo = MongoClient(MONGODB_URI, server_api=ServerApi('1'))
     client_mongo.admin.command('ping')
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
     logger.error(f"Error connecting to MongoDB: {str(e)}")
-    raise ValueError(f"Error connecting to MongoDB: {str(e)}")
+    logger.error(f"Stack trace: {traceback.format_exc()}")
+    raise
 
 db = client_mongo['TopMedicalArticles']
 collection = db['topics']
 
 # FastAPI app initialization
+logger.info("Initializing FastAPI app")
 fastapi_app = FastAPI()
 
 # CORS Middleware
+logger.info("Adding CORS middleware")
 fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -480,8 +508,14 @@ class UrlRequest(BaseModel):
     url: str
 
 # FastAPI endpoints
+@fastapi_app.get("/health")
+async def health_check():
+    logger.info("Health check endpoint called")
+    return {"status": "healthy"}
+
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
+    logger.info("Generate article endpoint called")
     initial_state = {
         "user_input_topic": request.get("user_input_topic", ""),
         "user_input_description": request.get("user_input_description", ""),
@@ -521,8 +555,13 @@ async def generate_article(request: dict):
 
 @fastapi_app.get("/get-topics", response_model=TopicsResponse)
 async def get_topics():
+    logger.info("Get topics endpoint called")
     try:
         logger.info("Attempting to fetch topics from MongoDB")
+        # Debug: Log the total number of documents in the collection
+        total_docs = collection.count_documents({})
+        logger.info(f"Total documents in MongoDB collection: {total_docs}")
+        
         document = collection.find_one({}, sort=[("timestamp", -1)])
         logger.info(f"Retrieved document from MongoDB: {document}")
 
@@ -566,6 +605,7 @@ async def get_topics():
 
 @fastapi_app.post("/fetch-topics")
 async def trigger_fetch_topics():
+    logger.info("Fetch topics endpoint called")
     try:
         result = await fetch_and_store_topics()
         return {"status": "success", "topics": result["topics"]}
@@ -575,6 +615,7 @@ async def trigger_fetch_topics():
 
 @fastapi_app.post("/extract")
 async def extract_content(request: UrlRequest):
+    logger.info("Extract content endpoint called")
     try:
         scraped = firecrawl.scrape_url(request.url)
         content = scraped.get('markdown', 'No content found')
@@ -586,11 +627,11 @@ async def extract_content(request: UrlRequest):
         logger.error(f"Extraction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Content extraction failed: {str(e)}")
 
-@fastapi_app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
 if __name__ == "__main__":
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, loop="asyncio")
-    server = uvicorn.Server(config)
-    server.run()
+    try:
+        logger.info("Starting Uvicorn server on host 0.0.0.0, port 8080")
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+    except Exception as e:
+        logger.error(f"Failed to start Uvicorn server: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
+        raise
