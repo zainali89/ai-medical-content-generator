@@ -629,8 +629,8 @@ async def extract_content(request: UrlRequest):
 
 if __name__ == "__main__":
     try:
-        logger.info("Starting Uvicorn server on host 0.0.0.0, port 8080")
-        port = int(os.environ.get("PORT", 8080))
+        logger.info("Starting Uvicorn server on host 0.0.0.0, port 5000")
+        port = int(os.environ.get("PORT", 5000))
         uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
     except Exception as e:
         logger.error(f"Failed to start Uvicorn server: {str(e)}")
