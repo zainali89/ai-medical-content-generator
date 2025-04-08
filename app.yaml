@@ -4,7 +4,7 @@ region: nyc
 
 services:
   - name: web
-    http_port: ${PORT}
+    http_port: 8080
     github:
       repo: zainal89/ai-medical-content-generator
       branch: main
@@ -31,6 +31,9 @@ services:
       - key: MONGO_URI
         scope: RUN_TIME
         value: ${MONGO_URI}
+      - key: PORT    # Explicitly set PORT environment variable
+        scope: RUN_TIME
+        value: "8080"
 
 workers:
   - name: scheduler
