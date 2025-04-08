@@ -1,4 +1,4 @@
-# tasks.py (updated) 
+# tasks.py
 import logging
 import os
 from dotenv import load_dotenv
@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import pytz
 import uuid
+import tenacity  # Add tenacity for retry logic
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -76,6 +77,25 @@ except Exception as e:
 db = client_mongo['TopMedicalArticles']
 collection = db['topics']
 
+# Retry decorator for OpenAI API calls
+@tenacity.retry(
+    stop=tenacity.stop_after_attempt(3),  # Retry 3 times
+    wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),  # Exponential backoff: 4s, 8s, 10s
+    retry=tenacity.retry_if_exception_type(Exception),  # Retry on any exception
+    before_sleep=tenacity.before_sleep_log(logger, logging.INFO)  # Log before each retry
+)
+async def fetch_topics_from_openai(prompt):
+    completion = openai_client.chat.completions.create(
+        model="gpt-4o-search-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+    return completion
+
 async def fetch_and_store_topics():
     try:
         aus_tz = pytz.timezone("Australia/Sydney")
@@ -86,15 +106,9 @@ async def fetch_and_store_topics():
         unique_id = str(uuid.uuid4())
         prompt = f"""As of {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}, perform a fresh, real-time search of the web and current online discussions to identify the 5 most talked-about medical topics today. Focus on trends that have emerged or gained significant attention in the last 24 hours. This request is unique (ID: {unique_id}) to ensure a new search. Provide only the list of topics, ranked by popularity, that are trending and suitable for creating articles for medical students. Just return the topic names, don't say any other thing, and don't add numbering."""
         
-        completion = openai_client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
+        # Fetch topics with retry logic
+        completion = await fetch_topics_from_openai(prompt)
+        
         # Split the response into individual topics
         topics = completion.choices[0].message.content.strip().split("\n")
         # Clean up each topic
@@ -117,7 +131,15 @@ async def fetch_and_store_topics():
         insert_result = collection.insert_one({"topics": cleaned_topics, "timestamp": current_time.isoformat()})
         logger.info(f"Stored {len(cleaned_topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}, ID: {insert_result.inserted_id}")
         
+        # Verify the insertion by querying MongoDB
+        latest_document = collection.find_one({}, sort=[("timestamp", -1)])
+        if latest_document:
+            logger.info(f"Verified: Latest document in MongoDB: {latest_document}")
+        else:
+            logger.error("Verification failed: No documents found in MongoDB after insertion")
+        
         return {"topics": cleaned_topics}
     except Exception as e:
         logger.error(f"Error fetching and storing topics: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         raise
