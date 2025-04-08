@@ -638,7 +638,7 @@ if __name__ == "__main__":
         logger.info("Starting Uvicorn server on host 0.0.0.0, port 8080")
         # Mark startup as complete once we reach this point
         startup_complete = True
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
     except Exception as e:
         logger.error(f"Failed to start Uvicorn server: {str(e)}")
         logger.error(f"Stack trace: {traceback.format_exc()}")
