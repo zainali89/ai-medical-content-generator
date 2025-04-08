@@ -1,4 +1,4 @@
-# main.py (updated)
+# main.py
 import logging
 import os
 from dotenv import load_dotenv
@@ -474,6 +474,7 @@ app = workflow.compile()
 # Pydantic models
 class TopicsResponse(BaseModel):
     topics: List[str]
+    timestamp: str  # Add timestamp to the response model
 
 class UrlRequest(BaseModel):
     url: str
@@ -527,26 +528,40 @@ async def get_topics():
 
         if not document:
             logger.warning("No documents found in MongoDB - returning empty list")
-            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+            return JSONResponse(
+                content={"topics": [], "timestamp": "N/A"},
+                headers={"Cache-Control": "no-store"}
+            )
 
         if 'topics' not in document:
             logger.error("Document found but 'topics' field is missing - returning empty list")
-            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+            return JSONResponse(
+                content={"topics": [], "timestamp": document.get('timestamp', 'N/A')},
+                headers={"Cache-Control": "no-store"}
+            )
 
         if 'timestamp' not in document:
             logger.warning("Document found but 'timestamp' field is missing")
+            timestamp = "N/A"
+        else:
+            timestamp = document['timestamp']
 
         topics = document['topics']
-        timestamp = document.get('timestamp', 'unknown')
-
         if not isinstance(topics, list):
             logger.error(f"Topics field is not a list: {topics} - returning empty list")
-            return JSONResponse(content={"topics": []}, headers={"Cache-Control": "no-store"})
+            return JSONResponse(
+                content={"topics": [], "timestamp": timestamp},
+                headers={"Cache-Control": "no-store"}
+            )
 
         logger.info(f"Successfully retrieved {len(topics)} topics from MongoDB with timestamp {timestamp}")
-        return JSONResponse(content={"topics": topics}, headers={"Cache-Control": "no-store"})
+        return JSONResponse(
+            content={"topics": topics, "timestamp": timestamp},
+            headers={"Cache-Control": "no-store"}
+        )
     except Exception as e:
         logger.error(f"Error fetching topics from MongoDB: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error fetching topics from MongoDB: {str(e)}")
 
 @fastapi_app.post("/fetch-topics")
