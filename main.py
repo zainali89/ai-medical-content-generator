@@ -507,6 +507,11 @@ class TopicsResponse(BaseModel):
 class UrlRequest(BaseModel):
     url: str
 
+@fastapi_app.on_event("startup")
+async def startup_event():
+    logger.info("FastAPI application starting up...")
+    logger.info(f"Environment: PORT={os.environ.get('PORT', '8080')}")
+
 # FastAPI endpoints
 @fastapi_app.get("/health")
 async def health_check():
@@ -629,10 +634,9 @@ async def extract_content(request: UrlRequest):
 
 if __name__ == "__main__":
     try:
-        logger.info("Starting Uvicorn server on host 0.0.0.0, port 5000")
-        port = int(os.environ.get("PORT", 5000))
+        port = int(os.environ.get("PORT", 8080))  
+        logger.info(f"Starting web server on port {port}")
         uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
     except Exception as e:
-        logger.error(f"Failed to start Uvicorn server: {str(e)}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
+        logger.error(f"Failed to start web server: {str(e)}")
         raise
