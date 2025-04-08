@@ -11,7 +11,12 @@ services:
     environment_slug: python
     instance_size_slug: basic-xs
     http_port: 8080
-
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 120  # Increased from 30 to 60
+      period_seconds: 10
+      timeout_seconds: 10
+      failure_threshold: 6
     envs:
       - key: OPENAI_API_KEY
         scope: RUN_TIME
