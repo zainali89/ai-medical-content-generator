@@ -24,9 +24,6 @@ from firecrawl import FirecrawlApp
 import pytz
 from tasks import fetch_and_store_topics  # Import from tasks.py
 
-
-startup_complete = False
-
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
 
@@ -87,19 +84,16 @@ except Exception as e:
     logger.error(f"Stack trace: {traceback.format_exc()}")
     raise
 
+# Connect to MongoDB
 try:
-    # Just check if MongoDB is accessible
+    logger.info("Connecting to MongoDB")
+    client_mongo = MongoClient(MONGODB_URI, server_api=ServerApi('1'))
     client_mongo.admin.command('ping')
-    mongodb_status = "connected"
+    logger.info("Successfully connected to MongoDB!")
 except Exception as e:
-    logger.error(f"MongoDB health check failed: {str(e)}")
-    mongodb_status = f"error: {str(e)}"
-
-return {
-        "status": "healthy", 
-        "startup_complete": startup_complete,
-        "mongodb": mongodb_status
-    }
+    logger.error(f"Error connecting to MongoDB: {str(e)}")
+    logger.error(f"Stack trace: {traceback.format_exc()}")
+    raise
 
 db = client_mongo['TopMedicalArticles']
 collection = db['topics']
@@ -516,8 +510,8 @@ class UrlRequest(BaseModel):
 # FastAPI endpoints
 @fastapi_app.get("/health")
 async def health_check():
-    global startup_complete
     logger.info("Health check endpoint called")
+    return {"status": "healthy"}
 
 @fastapi_app.post("/generate-article")
 async def generate_article(request: dict):
@@ -636,13 +630,9 @@ async def extract_content(request: UrlRequest):
 if __name__ == "__main__":
     try:
         logger.info("Starting Uvicorn server on host 0.0.0.0, port 8080")
-        # Mark startup as complete once we reach this point
-        startup_complete = True
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
+        port = int(os.environ.get("PORT", 8080))
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
     except Exception as e:
         logger.error(f"Failed to start Uvicorn server: {str(e)}")
         logger.error(f"Stack trace: {traceback.format_exc()}")
-        # Don't raise here - this will prevent the server from starting
-        # Instead, exit with a non-zero status
-        import sys
-        sys.exit(1)
+        raise
