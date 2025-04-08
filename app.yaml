@@ -10,7 +10,7 @@ services:
     run_command: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:fastapi_app --bind 0.0.0.0:8080
     environment_slug: python
     instance_size_slug: basic-xs
-    http_port: 8080
+    http_port: 8000
     health_check:
       http_path: /health
       initial_delay_seconds: 120  # Increased from 60 to 120
