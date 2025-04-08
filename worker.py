@@ -17,13 +17,11 @@ async def main():
     # Create scheduler with Australia/Sydney timezone
     scheduler = AsyncIOScheduler(timezone=pytz.timezone("Australia/Sydney"))
     
-    # Schedule the task to run every day at 12 AM
+    # Schedule the task to run every minute
     scheduler.add_job(
         fetch_and_store_topics,
-        'cron',
-        hour=0,
-        minute=0,
-        second=0
+        'interval',
+        minutes=1
     )
     
     # Run immediately on startup
