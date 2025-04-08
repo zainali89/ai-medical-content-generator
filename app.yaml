@@ -7,23 +7,23 @@ services:
     github:
       repo: zainal89/ai-medical-content-generator
       branch: main
-    run_command: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:fastapi_app --bind 0.0.0.0:8000
+    run_command: python main.py
     environment_slug: python
     instance_size_slug: basic-xs
-    http_port: 8000
+    http_port: 8080
     health_check:
       http_path: /health
-      initial_delay_seconds: 120  # Increased from 60 to 120
-      period_seconds: 15
-      timeout_seconds: 8
-      failure_threshold: 5
+      initial_delay_seconds: 60  # Increased from 30 to 60
+      period_seconds: 10
+      timeout_seconds: 5
+      failure_threshold: 3
     envs:
       - key: OPENAI_API_KEY
         scope: RUN_TIME
         value: ${OPENAI_API_KEY}
       - key: PERPLEXITY_API_KEY
         scope: RUN_TIME
-        value: ${PERPLEXITY_API_KEY}
+        value: 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
       - key: FIRECRAWL_API_KEY
         scope: RUN_TIME
         value: ${FIRECRAWL_API_KEY}
