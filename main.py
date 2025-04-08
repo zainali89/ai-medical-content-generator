@@ -1,4 +1,4 @@
-# main.py
+# main.py (updated)
 import logging
 import os
 from dotenv import load_dotenv
@@ -35,18 +35,19 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler()]
 )
 
-load_dotenv()
+# Note: load_dotenv() is not needed in DigitalOcean App Platform as variables are injected at runtime
+# load_dotenv()  # Comment out or remove this line
 
 # API Keys and MongoDB URI from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
-MONGODB_URI = os.environ.get("MONGODB_URI")
+MONGODB_URI = os.environ.get("MONGO_URI")  # Changed from MONGODB_URI to MONGO_URI
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
-logger.info(f"MONGODB_URI: {'Set' if MONGODB_URI else 'Not set'}")
+logger.info(f"MONGO_URI: {'Set' if MONGODB_URI else 'Not set'}")  # Updated log message
 
 if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
     raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
@@ -66,7 +67,7 @@ try:
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
     logger.error(f"Error connecting to MongoDB: {str(e)}")
-    raise ValueError(f"Error connecting六 to MongoDB: {str(e)}")
+    raise ValueError(f"Error connecting to MongoDB: {str(e)}")
 
 db = client_mongo['TopMedicalArticles']
 collection = db['topics']
@@ -575,6 +576,6 @@ async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8000, loop="asyncio")
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
     server.run()
