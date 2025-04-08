@@ -10,7 +10,7 @@ services:
     run_command: python main.py
     environment_slug: python
     instance_size_slug: basic-xs
-    http_port: 8080
+    http_port: 5000
     health_check:
       http_path: /health
       initial_delay_seconds: 120  # Increased from 30 to 60
