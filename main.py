@@ -1,3 +1,4 @@
+# main.py
 import logging
 import os
 from dotenv import load_dotenv
@@ -21,10 +22,9 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import uuid
+from tasks import fetch_and_store_topics  # Import from tasks.py
 
-# Apply nest_asyncio to allow nested event loops (e.g., in Jupyter)
+# Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
 
 # Set up logging
@@ -35,24 +35,13 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler()]
 )
 
-logger.info(f"Current working directory: {os.getcwd()}")
-env_file_path = os.path.join(os.getcwd(), ".env")
-logger.info(f"Looking for .env file at: {env_file_path}")
-if os.path.exists(env_file_path):
-    logger.info(".env file found")
-else:
-    logger.warning(".env file not found")
-
 load_dotenv()
 
 # API Keys and MongoDB URI from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
-MONGODB_URI = os.environ.get(
-    "MONGODB_URI",
-    "mongodb+srv://syedbasitabbas10:FZg3aL0FbRYyxGdh@topmedicalarticles.pfo2g.mongodb.net/?retryWrites=true&w=majority&appName=TopMedicalArticles"
-)
+MONGODB_URI = os.environ.get("MONGODB_URI")
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
@@ -77,10 +66,10 @@ try:
     logger.info("Successfully connected to MongoDB!")
 except Exception as e:
     logger.error(f"Error connecting to MongoDB: {str(e)}")
-    raise ValueError(f"Error connecting to MongoDB: {str(e)}")
+    raise ValueError(f"Error connecting六 to MongoDB: {str(e)}")
 
 db = client_mongo['TopMedicalArticles']
-collection = db['topics']  # Changed to 'topics'
+collection = db['topics']
 
 # FastAPI app initialization
 fastapi_app = FastAPI()
@@ -93,9 +82,6 @@ fastapi_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Create a scheduler
-scheduler = AsyncIOScheduler()
 
 # Decorator to time functions
 def timeit(func):
@@ -111,77 +97,6 @@ def timeit(func):
             result["performance_metrics"][func.__name__] = duration
         return result
     return wrapper
-
-# Fetch and store topics function
-async def fetch_and_store_topics():
-    try:
-        aus_tz = pytz.timezone("Australia/Sydney")
-        current_time = datetime.datetime.now(aus_tz)
-        logger.info(f"Starting topic fetch at {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')} in Australian time")
-
-        # Add a unique identifier to the prompt to avoid caching
-        unique_id = str(uuid.uuid4())
-        prompt = f"""As of {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}, perform a fresh, real-time search of the web and current online discussions to identify the 5 most talked-about medical topics today. Focus on trends that have emerged or gained significant attention in the last 24 hours. This request is unique (ID: {unique_id}) to ensure a new search. Provide only the list of topics, ranked by popularity, that are trending and suitable for creating articles for medical students. Just return the topic names, don't say any other thing, and don't add numbering."""
-        
-        completion = openai_client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-        # Split the response into individual topics
-        topics = completion.choices[0].message.content.strip().split("\n")
-        # Clean up each topic: remove leading Markdown list markers (e.g., "- ", "* ", "1. ") and extra whitespace
-        cleaned_topics = []
-        for topic in topics:
-            topic = topic.strip()  # Remove leading/trailing whitespace
-            # Remove common Markdown list markers
-            for marker in ['- ', '* ', '1. ', '2. ', '3. ', '4. ', '5. ']:
-                if topic.startswith(marker):
-                    topic = topic[len(marker):].strip()
-                    break
-            if topic:  # Only add non-empty topics
-                cleaned_topics.append(topic)
-        
-        logger.info(f"Fetched and cleaned topics: {cleaned_topics}")
-        
-        # Clear old topics and insert new ones
-        deleted_count = collection.delete_many({}).deleted_count
-        logger.info(f"Deleted {deleted_count} old topic documents from MongoDB")
-        
-        insert_result = collection.insert_one({"topics": cleaned_topics, "timestamp": current_time.isoformat()})
-        logger.info(f"Stored {len(cleaned_topics)} trending topics in MongoDB with timestamp {current_time.isoformat()}, ID: {insert_result.inserted_id}")
-        
-        return {"topics": cleaned_topics}
-    except Exception as e:
-        logger.error(f"Error fetching and storing topics: {str(e)}")
-        raise
-
-# Run task on startup and schedule it
-@fastapi_app.on_event("startup")
-async def startup_event():
-    try:
-        # Initial fetch
-        await fetch_and_store_topics()
-        logger.info("Initial topic fetch completed at startup")
-        
-        # Schedule the task to run every day at 12 AM Australia/Sydney time
-        scheduler.add_job(
-            fetch_and_store_topics,
-            'cron',
-            hour=0,  # 12 AM
-            minute=0,
-            second=0,
-            timezone=pytz.timezone("Australia/Sydney")
-        )
-        scheduler.start()
-        logger.info("Scheduled topic fetching every day at 12 AM Australia/Sydney time")
-    except Exception as e:
-        logger.error(f"Failed to fetch initial topics or set up scheduler: {str(e)}")
-        raise
 
 # State definition for LangGraph
 class State(TypedDict):
