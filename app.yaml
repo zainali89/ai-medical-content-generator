@@ -11,6 +11,12 @@ services:
     environment_slug: python
     instance_size_slug: basic-xs
     http_port: 8080
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      failure_threshold: 3
     envs:
       - key: OPENAI_API_KEY
         scope: RUN_TIME
@@ -30,7 +36,7 @@ workers:
     github:
       repo: zainal89/ai-medical-content-generator
       branch: main
-    run_command: python worker.py  # Add this line
+    run_command: python worker.py
     environment_slug: python
     instance_size_slug: basic-xs
     instance_count: 1
