@@ -1,4 +1,4 @@
-# tasks.py
+# tasks.py (updated)
 import logging
 import os
 from dotenv import load_dotenv
@@ -35,15 +35,26 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler()]
 )
 
-load_dotenv()
+# Note: load_dotenv() is not needed in DigitalOcean App Platform as variables are injected at runtime
+# load_dotenv()  # Comment out or remove this line
 
 # API Keys and MongoDB URI from environment variables
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
-MONGODB_URI = os.environ.get("MONGODB_URI")
+MONGODB_URI = os.environ.get("MONGO_URI")  # Changed from MONGODB_URI to MONGO_URI
 
-if not all([OPENAI_API_KEY, MONGODB_URI, FIRECRAWL_API_KEY]):
-    raise ValueError("One or more required keys (API keys or MongoDB URI) are missing.")
+# Check for missing environment variables and log specifics
+missing_vars = []
+if not OPENAI_API_KEY:
+    missing_vars.append("OPENAI_API_KEY")
+if not FIRECRAWL_API_KEY:
+    missing_vars.append("FIRECRAWL_API_KEY")
+if not MONGODB_URI:
+    missing_vars.append("MONGO_URI")
+
+if missing_vars:
+    logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
+    raise ValueError(f"One or more required keys are missing: {', '.join(missing_vars)}")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
