@@ -4,19 +4,18 @@ region: nyc
 
 services:
   - name: web
-    http_port: 8080
     github:
       repo: zainal89/ai-medical-content-generator
       branch: main
-    run_command: python main.py
+    run_command: python health.py  # Use the simplified health service first
     environment_slug: python
     instance_size_slug: basic-xs
     http_port: 8080
     health_check:
       http_path: /health
-      initial_delay_seconds: 180  # Increased from 30 to 60
-      period_seconds: 10
-      timeout_seconds: 10
+      initial_delay_seconds: 30  # Reduced since this is a simple service
+      period_seconds: 15
+      timeout_seconds: 5
       failure_threshold: 3
     envs:
       - key: OPENAI_API_KEY
@@ -24,16 +23,13 @@ services:
         value: ${OPENAI_API_KEY}
       - key: PERPLEXITY_API_KEY
         scope: RUN_TIME
-        value: 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
+        value: ${PERPLEXITY_API_KEY}
       - key: FIRECRAWL_API_KEY
         scope: RUN_TIME
         value: ${FIRECRAWL_API_KEY}
       - key: MONGO_URI
         scope: RUN_TIME
         value: ${MONGO_URI}
-      - key: PORT    # Explicitly set PORT environment variable
-        scope: RUN_TIME
-        value: "8080"
 
 workers:
   - name: scheduler
