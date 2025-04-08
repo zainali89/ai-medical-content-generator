@@ -7,7 +7,7 @@ services:
     github:
       repo: zainal89/ai-medical-content-generator
       branch: main
-    run_command: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:fastapi_app --bind 0.0.0.0:8080
+    run_command: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:fastapi_app --bind 0.0.0.0:8000
     environment_slug: python
     instance_size_slug: basic-xs
     http_port: 8000
