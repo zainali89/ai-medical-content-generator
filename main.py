@@ -305,6 +305,8 @@ def generate_content(state: State) -> dict:
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
+
+    Make sure the link you return is always clickable
     
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words
