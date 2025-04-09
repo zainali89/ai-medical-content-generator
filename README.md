@@ -23,7 +23,6 @@ This application generates medical content based on user input and various data 
    OPENAI_API_KEY=your_openai_api_key
    PERPLEXITY_API_KEY=your_perplexity_api_key
    FIRECRAWL_API_KEY=your_firecrawl_api_key
-   SCHEDULER_API_URL=http://your-scheduler-service-url
    ```
 
 3. Run the application:
@@ -50,12 +49,4 @@ This application generates medical content based on user input and various data 
 - `OPENAI_API_KEY`: Required for GPT-4o API calls
 - `PERPLEXITY_API_KEY`: Required for Perplexity API calls
 - `FIRECRAWL_API_KEY`: Required for Firecrawl web scraping
-- `SCHEDULER_API_URL`: URL of the scheduler service (to fetch trending topics)
 
-## Connection to Scheduler Service
-
-This webapp connects to the scheduler service to fetch trending topics. The connection is configured through the `SCHEDULER_API_URL` environment variable.
-
-Example setup:
-- If running locally: `SCHEDULER_API_URL=http://localhost:8000`
-- If deployed: `SCHEDULER_API_URL=https://your-scheduler-app-url` 
