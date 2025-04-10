@@ -18,6 +18,8 @@ import nest_asyncio
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
+import http.client
+import re
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -88,6 +90,48 @@ def timeit(func):
             result["performance_metrics"][func.__name__] = duration
         return result
     return wrapper
+
+# YouTube transcript functions
+def extract_video_id(video_url: str) -> str:
+    regex = r'(?:https?://)?(?:www\.)?(?:youtube\.com/(?:[^/]+/.*|(?:v|e(?:mbed)?)|.*[?&]v=)|youtu\.be/)([^&]{11})'
+    match = re.search(regex, video_url)
+    if match:
+        return match.group(1)
+    else:
+        logger.error(f"Invalid YouTube URL: {video_url}")
+        return None
+
+def get_youtube_transcript(video_url: str) -> dict:
+    video_id = extract_video_id(video_url)
+    if not video_id:
+        return {"transcript_text": "", "error": f"Invalid YouTube URL: {video_url}"}
+    
+    conn = http.client.HTTPSConnection("youtube-transcripts.p.rapidapi.com")
+    headers = {
+        'x-rapidapi-key': "c2e122140fmsh5a0be1dac9a5e0bp1aedb8jsnb98711b40c8d",
+        'x-rapidapi-host': "youtube-transcripts.p.rapidapi.com"
+    }
+    request_url = f"/youtube/transcript?url=https://www.youtube.com/watch?v={video_id}"
+    
+    try:
+        conn.request("GET", request_url, headers=headers)
+        res = conn.getresponse()
+        if res.status != 200:
+            logger.error(f"Error fetching transcript for {video_url}: {res.status} {res.reason}")
+            return {"transcript_text": "", "error": f"Error fetching transcript: {res.status} {res.reason}"}
+        
+        data = res.read()
+        transcript_json = json.loads(data.decode("utf-8"))
+        all_text = ""
+        if 'content' in transcript_json:
+            for segment in transcript_json['content']:
+                all_text += segment['text'] + " "
+        
+        logger.info(f"Successfully fetched transcript for {video_url}")
+        return {"transcript_text": all_text.strip(), "error": None}
+    except Exception as e:
+        logger.error(f"Exception fetching transcript for {video_url}: {str(e)}")
+        return {"transcript_text": "", "error": str(e)}
 
 # State definition for LangGraph
 class State(TypedDict):
@@ -238,9 +282,19 @@ def process_youtube_links(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
+    youtube_data = []
+    errors = []
+    
+    for url in state["youtube_links"]:
+        result = get_youtube_transcript(url)
+        if result["error"]:
+            errors.append(f"YouTube transcript error for {url}: {result['error']}")
+        else:
+            youtube_data.append(f"Transcript from {url}: {result['transcript_text']}")
+    
     return {
-        "youtube_data": [],
-        "errors": [],
+        "youtube_data": youtube_data,
+        "errors": errors,
         "performance_metrics": {},
         "critical_error": False
     }
@@ -272,9 +326,8 @@ def generate_content(state: State) -> dict:
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
-
-    length_mapping = {"Short": 1000, "Medium": 1500, "Long": 2500}
-    length_words = length_mapping.get(state["article_length"], 500)
+    length_mapping = {"Short": 1000, "Medium": 1500, "Long": 2500}  # Updated per client request
+    length_words = length_mapping.get(state["article_length"], 750)
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
     
@@ -542,4 +595,4 @@ async def health_check():
 if __name__ == "__main__":
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio")
     server = uvicorn.Server(config)
-    server.run() 
+    server.run()
