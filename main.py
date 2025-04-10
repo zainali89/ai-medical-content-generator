@@ -101,37 +101,43 @@ def extract_video_id(video_url: str) -> str:
         logger.error(f"Invalid YouTube URL: {video_url}")
         return None
 
-def get_youtube_transcript(video_url: str) -> dict:
-    video_id = extract_video_id(video_url)
-    if not video_id:
-        return {"transcript_text": "", "error": f"Invalid YouTube URL: {video_url}"}
-    
-    conn = http.client.HTTPSConnection("youtube-transcripts.p.rapidapi.com")
-    headers = {
-        'x-rapidapi-key': "c2e122140fmsh5a0be1dac9a5e0bp1aedb8jsnb98711b40c8d",
-        'x-rapidapi-host': "youtube-transcripts.p.rapidapi.com"
-    }
-    request_url = f"/youtube/transcript?url=https://www.youtube.com/watch?v={video_id}"
-    
-    try:
-        conn.request("GET", request_url, headers=headers)
-        res = conn.getresponse()
-        if res.status != 200:
-            logger.error(f"Error fetching transcript for {video_url}: {res.status} {res.reason}")
-            return {"transcript_text": "", "error": f"Error fetching transcript: {res.status} {res.reason}"}
+def get_youtube_transcript(video_urls: List[str]) -> List[Dict]:
+    results = []
+    for video_url in video_urls:
+        video_id = extract_video_id(video_url)
+        if not video_id:
+            results.append({"video_url": video_url, "transcript_text": "", "error": f"Invalid YouTube URL: {video_url}"})
+            continue
         
-        data = res.read()
-        transcript_json = json.loads(data.decode("utf-8"))
-        all_text = ""
-        if 'content' in transcript_json:
-            for segment in transcript_json['content']:
-                all_text += segment['text'] + " "
+        conn = http.client.HTTPSConnection("youtube-transcripts.p.rapidapi.com")
+        headers = {
+            'x-rapidapi-key': "c2e122140fmsh5a0be1dac9a5e0bp1aedb8jsnb98711b40c8d",
+            'x-rapidapi-host': "youtube-transcripts.p.rapidapi.com"
+        }
+        request_url = f"/youtube/transcript?url=https://www.youtube.com/watch?v={video_id}"
         
-        logger.info(f"Successfully fetched transcript for {video_url}")
-        return {"transcript_text": all_text.strip(), "error": None}
-    except Exception as e:
-        logger.error(f"Exception fetching transcript for {video_url}: {str(e)}")
-        return {"transcript_text": "", "error": str(e)}
+        try:
+            conn.request("GET", request_url, headers=headers)
+            res = conn.getresponse()
+            if res.status != 200:
+                logger.error(f"Error fetching transcript for {video_url}: {res.status} {res.reason}")
+                results.append({"video_url": video_url, "transcript_text": "", "error": f"Error fetching transcript: {res.status} {res.reason}"})
+                continue
+            
+            data = res.read()
+            transcript_json = json.loads(data.decode("utf-8"))
+            all_text = ""
+            if 'content' in transcript_json:
+                for segment in transcript_json['content']:
+                    all_text += segment['text'] + " "
+            
+            logger.info(f"Successfully fetched transcript for {video_url}")
+            results.append({"video_url": video_url, "transcript_text": all_text.strip(), "error": None})
+        except Exception as e:
+            logger.error(f"Exception fetching transcript for {video_url}: {str(e)}")
+            results.append({"video_url": video_url, "transcript_text": "", "error": str(e)})
+    
+    return results
 
 # State definition for LangGraph
 class State(TypedDict):
@@ -282,15 +288,15 @@ def process_youtube_links(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['youtube_links'])} YouTube links")
+    results = get_youtube_transcript(state["youtube_links"])
     youtube_data = []
     errors = []
     
-    for url in state["youtube_links"]:
-        result = get_youtube_transcript(url)
-        if result["error"]:
-            errors.append(f"YouTube transcript error for {url}: {result['error']}")
+    for result in results:
+        if result.get("error"):
+            errors.append(f"YouTube transcript error for {result['video_url']}: {result['error']}")
         else:
-            youtube_data.append(f"Transcript from {url}: {result['transcript_text']}")
+            youtube_data.append(f"Transcript from {result['video_url']}: {result['transcript_text']}")
     
     return {
         "youtube_data": youtube_data,
@@ -326,7 +332,7 @@ def generate_content(state: State) -> dict:
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
-    length_mapping = {"Short": 1000, "Medium": 1500, "Long": 2500}  # Updated per client request
+    length_mapping = {"Short": 750, "Medium": 1250, "Long": 2250}
     length_words = length_mapping.get(state["article_length"], 750)
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
