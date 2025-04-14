@@ -264,7 +264,8 @@ def search_perplexity(state: State) -> dict:
     }
 
 @timeit
-def search_medscape(state: State) -> dict:
+async def search_medscape(state: State) -> dict:
+    logger = logging.getLogger("main")
     logger.info(f"Searching Medscape for: {state['user_input_topic']}")
     errors = []
     medscape_data = []
@@ -288,31 +289,39 @@ def search_medscape(state: State) -> dict:
             logger.error(f"Medscape agent failed: {str(e)}")
             return None
 
-    # Run the async agent in the current event loop
     try:
         loop = asyncio.get_event_loop()
         result = loop.run_until_complete(run_medscape_agent())
         
         if result:
-            # Parse the result (assuming it's a string with summary and source)
-            lines = result.split("\n")
-            current_summary = []
-            current_source = None
-            for line in lines:
-                if line.startswith("- Summary:"):
-                    current_summary.append(line.replace("- Summary:", "").strip())
-                elif line.startswith("- Source:"):
-                    current_source = line.replace("- Source:", "").strip()
-                else:
-                    if current_summary:
-                        current_summary.append(line.strip())
+            # Log the type and content of result to understand its structure
+            logger.info(f"Type of result: {type(result)}")
+            logger.info(f"Result content: {result}")
             
-            summary_text = " ".join(current_summary).strip()
-            if summary_text and current_source:
-                medscape_data.append(f"Medscape content: {summary_text}\nSource: {current_source}")
-                logger.info(f"Extracted Medscape content for topic: {state['user_input_topic']}")
+            # Handle AgentHistoryList (assuming it’s a list)
+            if isinstance(result, list):
+                # Try taking the last element, assuming it’s the final output
+                final_output = result[-1]
+                if isinstance(final_output, str):
+                    # If it’s a string, split and parse it
+                    lines = final_output.split("\n")
+                    summary = ""
+                    source = ""
+                    for line in lines:
+                        if line.startswith("- Summary:"):
+                            summary = line.replace("- Summary:", "").strip()
+                        elif line.startswith("- Source:"):
+                            source = line.replace("- Source:", "").strip()
+                    if summary and source:
+                        medscape_data.append(f"Medscape content: {summary}\nSource: {source}")
+                    else:
+                        logger.warning("Failed to parse Medscape summary and source")
+                        medscape_data.append("No relevant Medscape content found")
+                else:
+                    logger.error(f"Final output is not a string: {type(final_output)}")
+                    medscape_data.append("No relevant Medscape content found")
             else:
-                logger.warning("No valid Medscape content extracted")
+                logger.error(f"Unexpected response type: {type(result)}")
                 medscape_data.append("No relevant Medscape content found")
         else:
             logger.warning("No Medscape content returned by agent")
