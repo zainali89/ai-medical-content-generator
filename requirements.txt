@@ -13,3 +13,4 @@ PyPDF2
 youtube_transcript_api
 google-api-python-client
 firecrawl 
+langchain_google_genai
