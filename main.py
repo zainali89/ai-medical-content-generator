@@ -20,6 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import http.client
 import re
+from langchain_google_genai import ChatGoogleGenerativeAI
+from browser_use import Agent, Browser, BrowserConfig
+import asyncio
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -46,14 +49,16 @@ load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 SCHEDULER_API_URL = os.environ.get("SCHEDULER_API_URL", "http://localhost:8000")
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
+logger.info(f"GOOGLE_API_KEY: {'Set' if GOOGLE_API_KEY else 'Not set'}")
 logger.info(f"SCHEDULER_API_URL: {SCHEDULER_API_URL}")
 
-if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, FIRECRAWL_API_KEY]):
+if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, FIRECRAWL_API_KEY, GOOGLE_API_KEY]):
     raise ValueError("One or more required API keys are missing.")
 
 # Initialize OpenAI client
@@ -147,6 +152,7 @@ class State(TypedDict):
     target_audience: str
     perplexity_data: List[str]
     firecrawl_data: List[str]
+    medscape_data: List[str]
     reference_urls: List[str]
     docs_files: List[str]
     youtube_links: List[str]
@@ -258,6 +264,73 @@ def search_perplexity(state: State) -> dict:
     }
 
 @timeit
+def search_medscape(state: State) -> dict:
+    logger.info(f"Searching Medscape for: {state['user_input_topic']}")
+    errors = []
+    medscape_data = []
+    
+    async def run_medscape_agent():
+        try:
+            agent = Agent(
+                task=f"""Go to https://www.medscape.com, log in with credentials Username: shane@connectthedocs.com.au and Password: Nelson01,
+                      search for '{state['user_input_topic']}', and extract the latest article information, its contents, and write a brief summary.
+                      Return the summary and source in the format:
+                      - Summary: [Summary text]
+                      - Source: [Title (Author(s), Date). Link: [URL]]""",
+                llm=ChatGoogleGenerativeAI(
+                    model="gemini-2.0-flash",
+                    google_api_key=GOOGLE_API_KEY
+                ),
+            )
+            result = await agent.run()
+            return result
+        except Exception as e:
+            logger.error(f"Medscape agent failed: {str(e)}")
+            return None
+
+    # Run the async agent in the current event loop
+    try:
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(run_medscape_agent())
+        
+        if result:
+            # Parse the result (assuming it's a string with summary and source)
+            lines = result.split("\n")
+            current_summary = []
+            current_source = None
+            for line in lines:
+                if line.startswith("- Summary:"):
+                    current_summary.append(line.replace("- Summary:", "").strip())
+                elif line.startswith("- Source:"):
+                    current_source = line.replace("- Source:", "").strip()
+                else:
+                    if current_summary:
+                        current_summary.append(line.strip())
+            
+            summary_text = " ".join(current_summary).strip()
+            if summary_text and current_source:
+                medscape_data.append(f"Medscape content: {summary_text}\nSource: {current_source}")
+                logger.info(f"Extracted Medscape content for topic: {state['user_input_topic']}")
+            else:
+                logger.warning("No valid Medscape content extracted")
+                medscape_data.append("No relevant Medscape content found")
+        else:
+            logger.warning("No Medscape content returned by agent")
+            medscape_data.append("No relevant Medscape content found")
+    
+    except Exception as e:
+        errors.append(f"Medscape extraction error: {str(e)}")
+        logger.error(f"Medscape extraction failed: {str(e)}")
+        medscape_data.append("No relevant Medscape content found")
+    
+    return {
+        "medscape_data": medscape_data,
+        "errors": errors,
+        "performance_metrics": {},
+        "critical_error": False
+    }
+
+@timeit
 def process_docs(state: State) -> dict:
     if not state["docs_files"]:
         logger.info("No document files provided, skipping docs processing")
@@ -317,7 +390,7 @@ def generate_content(state: State) -> dict:
         }
     logger.info(f"Generating content for: {state['user_input_topic']}")
     
-    if not state["perplexity_data"] and not state["firecrawl_data"] and not state["docs_data"] and not state["youtube_data"]:
+    if not any([state["perplexity_data"], state["firecrawl_data"], state["medscape_data"], state["docs_data"], state["youtube_data"]]):
         logger.warning("No data available for content generation")
         return {
             "generated_content": "",
@@ -329,6 +402,7 @@ def generate_content(state: State) -> dict:
     
     perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
+    medscape_data = "\n".join([f"Medscape: {item}" for item in state["medscape_data"] if item])
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
@@ -348,12 +422,14 @@ def generate_content(state: State) -> dict:
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
     - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
+    - **Medscape**: Scraped content prefixed with 'Medscape content: [content]\nSource: [Title (Author(s), Date). Link: [URL]]'. Use the URL provided in the source.
     - **Documents**: Content extracted from document files, prefixed with 'Document:'.
     - **YouTube**: Content transcribed from YouTube videos, prefixed with 'YouTube:'.
     
     Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
     - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
+    - Extract Medscape URLs from the 'Source: [Title (Author(s), Date). Link: [URL]]' line and use them unchanged.
     - For Document content, cite as "From document analysis" if no specific citation is available.
     - For YouTube content, cite as "From [YouTube video title]" if available.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
@@ -374,6 +450,8 @@ def generate_content(state: State) -> dict:
     {perplexity_data if perplexity_data else 'No Perplexity data available'}
     - Reference Data (Firecrawl): 
     {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
+    - Reference Data (Medscape): 
+    {medscape_data if medscape_data else 'No Medscape data available'}
     - Reference Data (Documents): 
     {docs_data if docs_data else 'No Document data available'}
     - Reference Data (YouTube): 
@@ -478,12 +556,27 @@ def validate_content(state: State) -> dict:
         "critical_error": critical_error
     }
 
+@timeit
 def check_data_availability(state: State) -> dict:
     logger.info("Checking data availability")
+    data_sources = [
+        ("Perplexity", state["perplexity_data"]),
+        ("Firecrawl", state["firecrawl_data"]),
+        ("Medscape", state["medscape_data"]),
+        ("Docs", state["docs_data"]),
+        ("YouTube", state["youtube_data"])
+    ]
+    errors = []
+    for source, data in data_sources:
+        if not data:
+            logger.warning(f"No data available from {source}")
+            errors.append(f"No data available from {source}")
+    
     if state["critical_error"]:
         logger.warning("Critical error detected, but proceeding with available data")
+    
     return {
-        "errors": [],
+        "errors": errors,
         "performance_metrics": {},
         "critical_error": state["critical_error"]
     }
@@ -496,6 +589,7 @@ workflow = StateGraph(State)
 workflow.add_node("process_user_input", process_user_input)
 workflow.add_node("search_perplexity", search_perplexity)
 workflow.add_node("extract_firecrawl_content", extract_firecrawl_content)
+workflow.add_node("search_medscape", search_medscape)
 workflow.add_node("process_docs", process_docs)
 workflow.add_node("process_youtube_links", process_youtube_links)
 workflow.add_node("check_data_availability", check_data_availability)
@@ -505,10 +599,12 @@ workflow.add_node("validate_content", validate_content)
 workflow.set_entry_point("process_user_input")
 workflow.add_edge("process_user_input", "search_perplexity")
 workflow.add_edge("process_user_input", "extract_firecrawl_content")
+workflow.add_edge("process_user_input", "search_medscape")
 workflow.add_edge("process_user_input", "process_docs")
 workflow.add_edge("process_user_input", "process_youtube_links")
 workflow.add_edge("search_perplexity", "check_data_availability")
 workflow.add_edge("extract_firecrawl_content", "check_data_availability")
+workflow.add_edge("search_medscape", "check_data_availability")
 workflow.add_edge("process_docs", "check_data_availability")
 workflow.add_edge("process_youtube_links", "check_data_availability")
 workflow.add_conditional_edges(
@@ -552,6 +648,7 @@ async def generate_article(request: dict):
         "youtube_links": request.get("youtube_links", []),
         "perplexity_data": [],
         "firecrawl_data": [],
+        "medscape_data": [],
         "docs_data": [],
         "youtube_data": [],
         "generated_content": "",
