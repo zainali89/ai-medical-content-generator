@@ -55,9 +55,19 @@ logger.info(f"MEDSCAPE_PASSWORD: {MEDSCAPE_PASSWORD}")
 # Initialize FastAPI app
 app = FastAPI()
 
-# Pydantic model for the request
+# Pydantic model for the /scrape-medscape request
 class TopicRequest(BaseModel):
     topic: str
+
+# Pydantic model for the /generate-article request
+class GenerateArticleRequest(BaseModel):
+    user_input_topic: str
+    user_input_description: str = ""
+    article_length: str = "Short"
+    target_audience: str = "general"
+    reference_urls: list[str] = []
+    docs_files: list[str] = []
+    youtube_links: list[str] = []
 
 # Function to scrape Medscape using browser_use
 async def scrape_medscape(topic: str) -> dict:
@@ -127,6 +137,79 @@ async def scrape_medscape(topic: str) -> dict:
             "status": "error"
         }
 
+# Function to generate a simple article from Medscape data
+def generate_article(medscape_data: list[str], topic: str, article_length: str, target_audience: str) -> str:
+    logger.info(f"Generating article for topic: {topic}")
+    
+    # Define article length in approximate word counts
+    length_map = {
+        "Short": 150,
+        "Medium": 300,
+        "Long": 500
+    }
+    target_words = length_map.get(article_length, 150)  # Default to Short if invalid
+
+    # Start the article with an introduction
+    intro = f"This article provides an overview of {topic} for a {target_audience} audience.\n\n"
+    
+    # Combine Medscape data into the article body
+    body = "Medscape Insights:\n"
+    if medscape_data and medscape_data[0] != "No relevant Medscape content found":
+        for data in medscape_data:
+            body += f"{data}\n\n"
+    else:
+        body += f"No relevant information on {topic} was found in Medscape.\n\n"
+    
+    # Add a conclusion
+    conclusion = f"In summary, this article has provided key insights into {topic} based on the latest medical information available."
+    
+    # Combine sections
+    article = intro + body + conclusion
+    
+    # Trim the article to the target length (approximate by words)
+    words = article.split()
+    if len(words) > target_words:
+        article = " ".join(words[:target_words]) + "..."
+    
+    logger.info(f"Generated article length: {len(article.split())} words")
+    return article
+
+# FastAPI endpoint to generate an article
+@app.post("/generate-article")
+async def generate_article_endpoint(request: GenerateArticleRequest):
+    logger.info(f"Received request to generate article for topic: {request.user_input_topic}")
+    
+    # Scrape Medscape data
+    medscape_result = await scrape_medscape(request.user_input_topic)
+    
+    # Check for errors in scraping
+    if medscape_result["status"] == "error":
+        logger.error(f"Article generation failed due to scraping errors: {medscape_result['errors']}")
+        raise HTTPException(
+            status_code=500,
+            detail={"detail": medscape_result["errors"], "status": 500}
+        )
+    
+    # Generate the article
+    article = generate_article(
+        medscape_data=medscape_result["medscape_data"],
+        topic=request.user_input_topic,
+        article_length=request.article_length,
+        target_audience=request.target_audience
+    )
+    
+    # Prepare the response in the format expected by the frontend
+    response = {
+        "generated_content": article,
+        "performance_metrics": {
+            "total_execution_time": 0  # Simplified; can add timing if needed
+        },
+        "errors": medscape_result["errors"]
+    }
+    
+    logger.info("Article generation completed successfully")
+    return JSONResponse(content=response)
+
 # FastAPI endpoint to trigger Medscape scraping
 @app.post("/scrape-medscape")
 async def scrape_medscape_endpoint(request: TopicRequest):
@@ -140,6 +223,15 @@ async def scrape_medscape_endpoint(request: TopicRequest):
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Placeholder for the removed /get-topics endpoint
+@app.get("/get-topics")
+async def get_topics():
+    logger.info("Received request to /get-topics, which has been removed")
+    return JSONResponse(
+        status_code=410,
+        content={"detail": "This endpoint has been removed."}
+    )
 
 # Run the app
 if __name__ == "__main__":
