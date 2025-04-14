@@ -39,15 +39,18 @@ ensure_playwright_browsers()
 
 # Load environment variables
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-MEDSCAPE_USERNAME = os.environ.get("MEDSCAPE_USERNAME")
-MEDSCAPE_PASSWORD = os.environ.get("MEDSCAPE_PASSWORD")
 
 logger.info(f"GOOGLE_API_KEY: {'Set' if GOOGLE_API_KEY else 'Not set'}")
-logger.info(f"MEDSCAPE_USERNAME: {'Set' if MEDSCAPE_USERNAME else 'Not set'}")
-logger.info(f"MEDSCAPE_PASSWORD: {'Set' if MEDSCAPE_PASSWORD else 'Not set'}")
 
-if not all([GOOGLE_API_KEY, MEDSCAPE_USERNAME, MEDSCAPE_PASSWORD]):
-    raise ValueError("One or more required environment variables are missing.")
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY environment variable is missing.")
+
+# Hardcode Medscape credentials
+MEDSCAPE_USERNAME = "shane@connectthedocs.com.au"
+MEDSCAPE_PASSWORD = "Nelson01"
+
+logger.info(f"MEDSCAPE_USERNAME: {MEDSCAPE_USERNAME}")
+logger.info(f"MEDSCAPE_PASSWORD: {MEDSCAPE_PASSWORD}")
 
 # Initialize FastAPI app
 app = FastAPI()
