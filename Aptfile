@@ -32,6 +32,6 @@ libhyphen0
 libmanette-0.2-0
 libgles2
 libx264-163
-libgstreamer-gl1.0-0  # For libgstgl-1.0.so.0
-libflite1             # For libflite* libraries
-libcairo2-dev         # For libcairo-script-interpreter.so.2
+libgstreamer-gl1.0-0
+libflite1
+libcairo2-dev
