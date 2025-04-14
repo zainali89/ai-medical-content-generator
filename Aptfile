@@ -12,3 +12,6 @@ libasound2
 libatspi2.0-0
 libpango-1.0-0
 libcairo2
+libx11-xcb1
+libxcursor1
+libgtk-3-0
