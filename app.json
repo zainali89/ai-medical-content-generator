@@ -1,0 +1,6 @@
+{
+  "buildpacks": [
+    { "url": "heroku/python" },
+    { "url": "https://github.com/mxschmitt/heroku-playwright-buildpack" }
+  ]
+}
