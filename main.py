@@ -269,29 +269,20 @@ async def search_medscape(state: State) -> dict:
     logger.info(f"Searching Medscape for: {state['user_input_topic']}")
     errors = []
     medscape_data = []
-    
-    async def run_medscape_agent():
-        try:
-            agent = Agent(
-                task=f"""Go to https://www.medscape.com, log in with credentials Username: shane@connectthedocs.com.au and Password: Nelson01,
-                      search for '{state['user_input_topic']}', and extract the latest article information, its contents, and write a brief summary.
-                      Return the summary and source in the format:
-                      - Summary: [Summary text]
-                      - Source: [Title (Author(s), Date). Link: [URL]]""",
-                llm=ChatGoogleGenerativeAI(
-                    model="gemini-2.0-flash",
-                    google_api_key=GOOGLE_API_KEY
-                ),
-            )
-            result = await agent.run()
-            return result
-        except Exception as e:
-            logger.error(f"Medscape agent failed: {str(e)}")
-            return None
 
     try:
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(run_medscape_agent())
+        agent = Agent(
+            task=f"""Go to https://www.medscape.com, log in with credentials Username: shane@connectthedocs.com.au and Password: Nelson01,
+                  search for '{state['user_input_topic']}', and extract the latest article information, its contents, and write a brief summary.
+                  Return the summary and source in the format:
+                  - Summary: [Summary text]
+                  - Source: [Title (Author(s), Date). Link: [URL]]""",
+            llm=ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=GOOGLE_API_KEY
+            ),
+        )
+        result = await agent.run()  # Await the agent's async run method
         
         if result:
             # Log the type and content of result to understand its structure
@@ -338,6 +329,7 @@ async def search_medscape(state: State) -> dict:
         "performance_metrics": {},
         "critical_error": False
     }
+
 
 @timeit
 def process_docs(state: State) -> dict:
@@ -668,7 +660,7 @@ async def generate_article(request: dict):
     logger.info("Starting workflow execution")
     start_time = time.time()
     try:
-        final_state = langgraph_app.invoke(initial_state)
+        final_state = await langgraph_app.ainvoke(initial_state)  # Use ainvoke instead of invoke
         end_time = time.time()
         total_time = end_time - start_time
         final_state["performance_metrics"]["total_execution_time"] = total_time
