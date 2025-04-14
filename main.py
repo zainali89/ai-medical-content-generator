@@ -20,9 +20,10 @@ logger = logging.getLogger("main")
 # Log current working directory
 logger.info(f"Current working directory: {os.getcwd()}")
 
-# Ensure Playwright browsers are installed at startup
+# Ensure Playwright browsers and dependencies are installed at startup
 def ensure_playwright_browsers():
     try:
+        # Check if Playwright browsers are already installed
         chromium_path = os.path.expanduser("~/.cache/ms-playwright/chromium-1161/chrome-linux/chrome")
         if not os.path.exists(chromium_path):
             logger.info("Playwright browsers not found. Installing...")
@@ -30,9 +31,47 @@ def ensure_playwright_browsers():
             logger.info("Playwright browsers installed successfully.")
         else:
             logger.info("Playwright browsers already installed.")
+
+        # Check if system dependencies are installed by attempting to run a browser
+        try:
+            # A simple test to see if Playwright can launch a browser
+            from playwright.async_api import async_playwright
+            async def test_browser():
+                async with async_playwright() as p:
+                    browser = await p.chromium.launch()
+                    await browser.close()
+            asyncio.run(test_browser())
+            logger.info("Playwright system dependencies are satisfied.")
+        except Exception as e:
+            logger.warning(f"Playwright browser launch test failed: {str(e)}. Installing system dependencies...")
+            # Install system dependencies at runtime
+            try:
+                subprocess.run(["sudo", "apt-get", "update"], check=True)
+                subprocess.run([
+                    "sudo", "apt-get", "install", "-y",
+                    "libnss3",
+                    "libnspr4",
+                    "libatk1.0-0",
+                    "libatk-bridge2.0-0",
+                    "libxcomposite1",
+                    "libxdamage1",
+                    "libxfixes3",
+                    "libxrandr2",
+                    "libgbm1",
+                    "libxkbcommon0",
+                    "libasound2",
+                    "libatspi2.0-0",
+                    "libpango-1.0-0",
+                    "libcairo2"
+                ], check=True)
+                logger.info("Playwright system dependencies installed successfully.")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to install system dependencies: {str(e)}")
+                raise RuntimeError("Failed to install Playwright system dependencies")
+
     except Exception as e:
-        logger.error(f"Failed to install Playwright browsers: {str(e)}")
-        raise RuntimeError("Playwright browser installation failed")
+        logger.error(f"Playwright setup failed: {str(e)}")
+        raise RuntimeError("Playwright setup failed")
 
 # Run the check on startup
 ensure_playwright_browsers()
