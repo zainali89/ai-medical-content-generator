@@ -1,9 +1,11 @@
 import os
 import logging
+import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from browser_use import Agent, ChatGoogleGenerativeAI
+from browser_use import Agent
+from langchain_google_genai import ChatGoogleGenerativeAI
 import asyncio
 import uvicorn
 
@@ -17,6 +19,23 @@ logger = logging.getLogger("main")
 
 # Log current working directory
 logger.info(f"Current working directory: {os.getcwd()}")
+
+# Ensure Playwright browsers are installed at startup
+def ensure_playwright_browsers():
+    try:
+        chromium_path = os.path.expanduser("~/.cache/ms-playwright/chromium-1161/chrome-linux/chrome")
+        if not os.path.exists(chromium_path):
+            logger.info("Playwright browsers not found. Installing...")
+            subprocess.run(["playwright", "install"], check=True)
+            logger.info("Playwright browsers installed successfully.")
+        else:
+            logger.info("Playwright browsers already installed.")
+    except Exception as e:
+        logger.error(f"Failed to install Playwright browsers: {str(e)}")
+        raise RuntimeError("Playwright browser installation failed")
+
+# Run the check on startup
+ensure_playwright_browsers()
 
 # Load environment variables
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
@@ -121,6 +140,6 @@ async def health_check():
 
 # Run the app
 if __name__ == "__main__":
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio")
+    config = uvicorn.Config(app, host="0.0.0.0", port=8080, loop="asyncio")  # Use port 8080 for DigitalOcean
     server = uvicorn.Server(config)
-    server.run()
+    asyncio.run(server.serve())
