@@ -33,10 +33,10 @@ async def ensure_playwright_browsers():
         else:
             logger.info("Playwright browsers already installed.")
 
-        # Test if Playwright can launch a browser
+        # Test if Playwright can launch a browser in headless mode
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                browser = await p.chromium.launch(headless=True)
                 await browser.close()
             logger.info("Playwright system dependencies are satisfied.")
         except Exception as e:
@@ -89,7 +89,7 @@ async def scrape_medscape(topic: str) -> dict:
     logger.info(f"Scraping Medscape for topic: {topic}")
     
     try:
-        # Initialize the agent
+        # Initialize the agent with headless mode
         agent = Agent(
             task=f"""Go to https://www.medscape.com, log in with credentials Username: {MEDSCAPE_USERNAME} and Password: {MEDSCAPE_PASSWORD},
                   search for '{topic}', and extract the latest article information, its contents, and write a brief summary.
@@ -100,6 +100,7 @@ async def scrape_medscape(topic: str) -> dict:
                 model="gemini-2.0-flash",
                 google_api_key=GOOGLE_API_KEY
             ),
+            browser_config={"headless": True}  # Force headless mode
         )
         
         # Run the agent and await the result
