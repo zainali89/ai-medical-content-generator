@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from playwright.sync_api import sync_playwright, Playwright
 import uvicorn
+from retrying import retry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -57,6 +58,7 @@ def setup_playwright() -> Playwright:
     
     return playwright
 
+@retry(stop_max_attempt_number=3, wait_fixed=2000)  # Retry 3 times with a 2-second delay between attempts
 def scrape_medscape(playwright: Playwright, topic: str) -> str:
     """
     Scrape Medscape for the given topic.
@@ -81,15 +83,21 @@ def scrape_medscape(playwright: Playwright, topic: str) -> str:
         page.click('button[type="submit"]')
 
         # Wait for navigation after login
-        page.wait_for_url("https://www.medscape.com/*", timeout=60000)
-        logger.info("Login successful")
+        try:
+            page.wait_for_url("https://www.medscape.com/*", timeout=60000)
+            logger.info("Login successful")
+        except Exception as e:
+            # Take a screenshot if login fails
+            page.screenshot(path="login_failure.png")
+            logger.error("Login failed, screenshot saved as login_failure.png: %s", str(e))
+            raise Exception("Failed to log in to Medscape")
 
         # Search for the topic
         search_url = f"https://www.medscape.com/search?query={topic}"
         logger.info("Searching for topic: %s", topic)
         page.goto(search_url, timeout=60000)
 
-        # Extract content (simplified example - adjust based on Medscape's structure)
+        # Extract content (adjust selector based on Medscape's structure)
         content = page.inner_text("body")  # Replace with actual selector for article content
         logger.info("Successfully scraped content for topic: %s", topic)
         return content
