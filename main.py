@@ -4,7 +4,6 @@ import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from browser_use import Agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 import asyncio
 import uvicorn
@@ -84,60 +83,50 @@ class GenerateArticleRequest(BaseModel):
     docs_files: list[str] = []
     youtube_links: list[str] = []
 
-# Function to scrape Medscape using browser_use
+# Function to scrape Medscape using Playwright directly
 async def scrape_medscape(topic: str) -> dict:
     logger.info(f"Scraping Medscape for topic: {topic}")
     
     try:
-        # Initialize the agent with headless mode
-        agent = Agent(
-            task=f"""Go to https://www.medscape.com, log in with credentials Username: {MEDSCAPE_USERNAME} and Password: {MEDSCAPE_PASSWORD},
-                  search for '{topic}', and extract the latest article information, its contents, and write a brief summary.
-                  Return the summary and source in the format:
-                  - Summary: [Summary text]
-                  - Source: [Title (Author(s), Date). Link: [URL]]""",
-            llm=ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                google_api_key=GOOGLE_API_KEY
-            ),
-            browser_config={"headless": True}  # Force headless mode
-        )
-        
-        # Run the agent and await the result
-        result = await agent.run()
-        logger.info(f"Agent run completed. Result type: {type(result)}")
-        logger.info(f"Agent result content: {result}")
-        
-        # Parse the result
-        medscape_data = []
-        if result:
-            # Assuming result is a list (AgentHistoryList), take the last element
-            if isinstance(result, list) and result:
-                final_output = result[-1]
-                if isinstance(final_output, str):
-                    # Parse the summary and source
-                    lines = final_output.split("\n")
-                    summary = ""
-                    source = ""
-                    for line in lines:
-                        if line.startswith("- Summary:"):
-                            summary = line.replace("- Summary:", "").strip()
-                        elif line.startswith("- Source:"):
-                            source = line.replace("- Source:", "").strip()
-                    if summary and source:
-                        medscape_data.append(f"Medscape content: {summary}\nSource: {source}")
-                    else:
-                        logger.warning("Failed to parse Medscape summary and source")
-                        medscape_data.append("No relevant Medscape content found")
-                else:
-                    logger.error(f"Final output is not a string: {type(final_output)}")
-                    medscape_data.append("No relevant Medscape content found")
-            else:
-                logger.error(f"Unexpected response type: {type(result)}")
-                medscape_data.append("No relevant Medscape content found")
-        else:
-            logger.warning("No Medscape content returned by agent")
-            medscape_data.append("No relevant Medscape content found")
+        async with async_playwright() as p:
+            # Launch browser in headless mode
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            # Navigate to Medscape
+            await page.goto("https://www.medscape.com")
+            await page.wait_for_load_state("networkidle")
+
+            # Log in
+            await page.fill('input[name="username"]', MEDSCAPE_USERNAME)
+            await page.fill('input[name="password"]', MEDSCAPE_PASSWORD)
+            await page.click('button[type="submit"]')
+            await page.wait_for_load_state("networkidle")
+
+            # Search for the topic
+            await page.fill('input[name="q"]', topic)
+            await page.press('input[name="q"]', 'Enter')
+            await page.wait_for_load_state("networkidle")
+
+            # Extract the latest article (simplified selectors - adjust as needed)
+            await page.wait_for_selector('article')
+            article_title = await page.query_selector('article h2')
+            title_text = await article_title.inner_text() if article_title else "No title found"
+            article_link = await page.query_selector('article a')
+            link_url = await article_link.get_attribute('href') if article_link else "No link found"
+
+            # Use LLM to summarize if needed (optional)
+            llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=GOOGLE_API_KEY)
+            summary_prompt = f"Summarize the following topic based on the title: {title_text}"
+            summary_response = llm.invoke(summary_prompt)
+            summary = summary_response.content if hasattr(summary_response, 'content') else f"This article discusses the latest findings on {topic}."
+
+            # Format the source
+            source = f"{title_text} (Unknown Author, Unknown Date). Link: {link_url}"
+
+            await browser.close()
+
+            medscape_data = [f"Medscape content: {summary}\nSource: {source}"]
         
         return {
             "medscape_data": medscape_data,
