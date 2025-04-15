@@ -21,10 +21,10 @@ class ArticleRequest(BaseModel):
     user_input_topic: str
     article_length: str
     target_audience: str
-    description: str = ""  # Made optional with a default empty string
-    youtube_links: bool
-    reference_urls: bool
-    docs_files: bool
+    user_input_description: str = ""  # Renamed to match frontend; optional with default empty string
+    youtube_links: bool = False  # Made optional with default False
+    reference_urls: bool = False  # Made optional with default False
+    docs_files: bool = False  # Made optional with default False
 
 # Function to fetch content from Medscape using BrowserUse
 async def fetch_medscape_content(topic: str):
@@ -71,7 +71,7 @@ async def generate_article(request: Request):
     user_input_topic = article_request.user_input_topic
     article_length = article_request.article_length.lower()
     target_audience = article_request.target_audience.lower()
-    description = article_request.description
+    description = article_request.user_input_description  # Updated to match renamed field
 
     # Initialize the Gemini LLM
     llm = ChatGoogleGenerativeAI(
