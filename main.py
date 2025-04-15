@@ -41,7 +41,13 @@ async def fetch_medscape_content(topic: str):
         llm=llm,
         browser=Browser(
             BrowserConfig(
-                headless=True
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-setuid-sandbox'
+                ]
             )
         )
     )
@@ -124,7 +130,13 @@ async def browse_medscape_endpoint():
         llm=llm,
         browser=Browser(
             BrowserConfig(
-                headless=True
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-setuid-sandbox'
+                ]
             )
         )
     )
