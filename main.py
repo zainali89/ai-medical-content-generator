@@ -4,7 +4,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent, Browser, BrowserConfig
 import os
 import asyncio
-import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,26 +11,92 @@ load_dotenv()
 # Create the FastAPI app instance
 app = FastAPI()
 
-# Define a Pydantic model for the request payload
+# Define a Pydantic model for the request payload to match the frontend
 class ArticleRequest(BaseModel):
     user_input_topic: str
     article_length: str
     target_audience: str
-    reference_urls: list
-    docs_files: list
-    youtube_links: list
+    description: str
+    youtube_links: bool
+    reference_urls: bool
+    docs_files: bool
+
+# Function to fetch content from Medscape using BrowserUse
+async def fetch_medscape_content(topic: str):
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=os.environ["GOOGLE_API_KEY"]
+    )
+    task = f"""
+    Navigate to https://www.medscape.com and search for "{topic}".
+    Extract relevant content from the search results or article page.
+    """
+    agent = Agent(
+        task=task,
+        llm=llm,
+        browser=Browser(
+            BrowserConfig(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-setuid-sandbox'
+                ]
+            )
+        )
+    )
+    try:
+        result = await agent.run()
+        return result if result else "No relevant content found on Medscape."
+    except Exception as e:
+        return f"Error fetching Medscape content: {str(e)}"
 
 # Define the /generate-article endpoint
 @app.post("/generate-article")
 async def generate_article(request: ArticleRequest):
     # Extract the request data
     user_input_topic = request.user_input_topic
-    article_length = request.article_length
-    target_audience = request.target_audience
+    article_length = request.article_length.lower()
+    target_audience = request.target_audience.lower()
+    description = request.description
 
-    # Placeholder logic for generating an article
-    # In a real app, you'd use an LLM or other logic to generate the article
-    generated_content = f"Generated article on {user_input_topic} for {target_audience} audience ({article_length} length)."
+    # Initialize the Gemini LLM
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=os.environ["GOOGLE_API_KEY"]
+    )
+
+    # Fetch additional context from Medscape if any reference source is selected
+    medscape_content = ""
+    if request.reference_urls or request.youtube_links or request.docs_files:
+        medscape_content = await fetch_medscape_content(user_input_topic)
+
+    # Define the prompt for article generation
+    prompt = f"""
+    Write a {article_length} article on the topic "{user_input_topic}" for a {target_audience} audience.
+    Use the following description as a guide: {description}
+    If applicable, incorporate the following information from Medscape: {medscape_content}
+    Ensure the article is clear, informative, and suitable for the target audience.
+    """
+
+    # Generate the article using Gemini LLM
+    try:
+        response = llm.invoke(prompt)
+        generated_content = response.content
+    except Exception as e:
+        generated_content = f"Error generating article: {str(e)}"
+
+    # Adjust the article length (simplified logic for demonstration)
+    if article_length == "short":
+        # Limit to a short paragraph (e.g., first 100 words)
+        words = generated_content.split()
+        generated_content = " ".join(words[:100])
+    elif article_length == "medium":
+        # Limit to a medium length (e.g., first 300 words)
+        words = generated_content.split()
+        generated_content = " ".join(words[:300])
+    # For "long", use the full generated content
 
     return {"status": "success", "content": generated_content}
 
@@ -40,7 +105,7 @@ async def generate_article(request: ArticleRequest):
 async def health_check():
     return {"message": "App is running"}
 
-# Define the /browse-medscape endpoint
+# Define the /browse-medscape endpoint for testing
 @app.get("/browse-medscape")
 async def browse_medscape_endpoint():
     llm = ChatGoogleGenerativeAI(
@@ -68,57 +133,23 @@ async def browse_medscape_endpoint():
     result = await agent.run()
     return {"status": "success", "medscape_content": result}
 
-# Test logic to run when the script is executed directly
-async def call_generate_article_endpoint():
-    payload = {
-        "user_input_topic": "Animal Allergy",
-        "article_length": "Short",
-        "target_audience": "general",
-        "reference_urls": [],
-        "docs_files": [],
-        "youtube_links": []
-    }
-    url = "https://your-app.ondigitalocean.app/generate-article"  # Replace with your actual app URL
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, json=payload, timeout=30.0)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-async def browse_medscape():
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=os.environ["GOOGLE_API_KEY"]
+# Function to generate article with hardcoded inputs
+async def generate_article_with_hardcoded_inputs():
+    # Hardcoded inputs matching the frontend form
+    hardcoded_request = ArticleRequest(
+        user_input_topic="Animal Allergy",
+        article_length="Short",
+        target_audience="public",
+        description="A brief overview of animal allergies, their symptoms, and management.",  # Hardcoded description
+        youtube_links=False,
+        reference_urls=False,
+        docs_files=False
     )
-    task = """
-    Navigate to https://www.medscape.com and extract the page content.
-    """
-    agent = Agent(
-        task=task,
-        llm=llm,
-        browser=Browser(
-            BrowserConfig(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--disable-setuid-sandbox'
-                ]
-            )
-        )
-    )
-    result = await agent.run()
-    return result
 
-async def run_tests():
-    article_result = await call_generate_article_endpoint()
-    print("Generate Article Result:", article_result)
-    medscape_result = await browse_medscape()
-    print("Medscape Content:", medscape_result)
+    # Call the generate_article function with the hardcoded inputs
+    result = await generate_article(hardcoded_request)
+    print("Generated Article:", result)
 
-# Run the tests when the script is executed directly
+# Run the hardcoded generation when the script is executed directly
 if __name__ == "__main__":
-    asyncio.run(run_tests())
+    asyncio.run(generate_article_with_hardcoded_inputs())
