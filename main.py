@@ -1,10 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent, Browser, BrowserConfig
 import os
 import asyncio
 from dotenv import load_dotenv
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -16,7 +21,7 @@ class ArticleRequest(BaseModel):
     user_input_topic: str
     article_length: str
     target_audience: str
-    description: str
+    description: str = ""  # Made optional with a default empty string
     youtube_links: bool
     reference_urls: bool
     docs_files: bool
@@ -52,14 +57,21 @@ async def fetch_medscape_content(topic: str):
     except Exception as e:
         return f"Error fetching Medscape content: {str(e)}"
 
-# Define the /generate-article endpoint
+# Define the /generate-article endpoint with logging
 @app.post("/generate-article")
-async def generate_article(request: ArticleRequest):
+async def generate_article(request: Request):
+    # Log the raw request body
+    body = await request.json()
+    logger.info(f"Received request payload: {body}")
+
+    # Validate the request using the ArticleRequest model
+    article_request = ArticleRequest(**body)
+
     # Extract the request data
-    user_input_topic = request.user_input_topic
-    article_length = request.article_length.lower()
-    target_audience = request.target_audience.lower()
-    description = request.description
+    user_input_topic = article_request.user_input_topic
+    article_length = article_request.article_length.lower()
+    target_audience = article_request.target_audience.lower()
+    description = article_request.description
 
     # Initialize the Gemini LLM
     llm = ChatGoogleGenerativeAI(
@@ -69,7 +81,7 @@ async def generate_article(request: ArticleRequest):
 
     # Fetch additional context from Medscape if any reference source is selected
     medscape_content = ""
-    if request.reference_urls or request.youtube_links or request.docs_files:
+    if article_request.reference_urls or article_request.youtube_links or article_request.docs_files:
         medscape_content = await fetch_medscape_content(user_input_topic)
 
     # Define the prompt for article generation
@@ -132,24 +144,3 @@ async def browse_medscape_endpoint():
     )
     result = await agent.run()
     return {"status": "success", "medscape_content": result}
-
-# Function to generate article with hardcoded inputs
-async def generate_article_with_hardcoded_inputs():
-    # Hardcoded inputs matching the frontend form
-    hardcoded_request = ArticleRequest(
-        user_input_topic="Animal Allergy",
-        article_length="Short",
-        target_audience="public",
-        description="A brief overview of animal allergies, their symptoms, and management.",  # Hardcoded description
-        youtube_links=False,
-        reference_urls=False,
-        docs_files=False
-    )
-
-    # Call the generate_article function with the hardcoded inputs
-    result = await generate_article(hardcoded_request)
-    print("Generated Article:", result)
-
-# Run the hardcoded generation when the script is executed directly
-if __name__ == "__main__":
-    asyncio.run(generate_article_with_hardcoded_inputs())
