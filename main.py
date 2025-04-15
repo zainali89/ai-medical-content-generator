@@ -21,10 +21,10 @@ class ArticleRequest(BaseModel):
     user_input_topic: str
     article_length: str
     target_audience: str
-    user_input_description: str = ""  # Renamed to match frontend; optional with default empty string
-    youtube_links: bool = False  # Made optional with default False
-    reference_urls: bool = False  # Made optional with default False
-    docs_files: bool = False  # Made optional with default False
+    user_input_description: str = ""
+    youtube_links: bool = False
+    reference_urls: bool = False
+    docs_files: bool = False
 
 # Function to fetch content from Medscape using BrowserUse
 async def fetch_medscape_content(topic: str):
@@ -71,7 +71,7 @@ async def generate_article(request: Request):
     user_input_topic = article_request.user_input_topic
     article_length = article_request.article_length.lower()
     target_audience = article_request.target_audience.lower()
-    description = article_request.user_input_description  # Updated to match renamed field
+    description = article_request.user_input_description
 
     # Initialize the Gemini LLM
     llm = ChatGoogleGenerativeAI(
@@ -79,16 +79,14 @@ async def generate_article(request: Request):
         google_api_key=os.environ["GOOGLE_API_KEY"]
     )
 
-    # Fetch additional context from Medscape if any reference source is selected
-    medscape_content = ""
-    if article_request.reference_urls or article_request.youtube_links or article_request.docs_files:
-        medscape_content = await fetch_medscape_content(user_input_topic)
+    # Always fetch Medscape content to test BrowserUse
+    medscape_content = await fetch_medscape_content(user_input_topic)
 
     # Define the prompt for article generation
     prompt = f"""
     Write a {article_length} article on the topic "{user_input_topic}" for a {target_audience} audience.
     Use the following description as a guide: {description}
-    If applicable, incorporate the following information from Medscape: {medscape_content}
+    Incorporate the following information from Medscape: {medscape_content}
     Ensure the article is clear, informative, and suitable for the target audience.
     """
 
