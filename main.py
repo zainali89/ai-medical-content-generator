@@ -22,6 +22,8 @@ import http.client
 import re
 import PyPDF2
 from docx import Document
+import tempfile
+import urllib.parse
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -278,13 +280,42 @@ def process_docs(state: State) -> dict:
     errors = []
     docs_data = []
     
-    for doc_path in state["docs_files"]:
+    for doc in state["docs_files"]:
         try:
-            file_ext = os.path.splitext(doc_path)[1].lower()
+            # Check if the input is a URL
+            is_url = doc.startswith("http://") or doc.startswith("https://")
+            file_path = doc
+            
+            if is_url:
+                # Create a temporary file for the downloaded content
+                response = requests.get(doc, stream=True)
+                response.raise_for_status()
+                
+                # Get the filename from the URL or Content-Disposition header
+                content_disposition = response.headers.get("content-disposition")
+                if content_disposition and "filename=" in content_disposition:
+                    filename = content_disposition.split("filename=")[1].strip('"')
+                else:
+                    filename = urllib.parse.urlparse(doc).path.split("/")[-1]
+                
+                # Ensure the file has a valid extension
+                if not filename.lower().endswith((".pdf", ".docx")):
+                    raise ValueError(f"Unsupported file format in URL: {filename}")
+                
+                # Save to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            temp_file.write(chunk)
+                    file_path = temp_file.name
+                logger.info(f"Downloaded document from {doc} to temporary file: {file_path}")
+            
+            # Process the file
+            file_ext = os.path.splitext(file_path)[1].lower()
             text = ""
             
             if file_ext == ".pdf":
-                with open(doc_path, "rb") as file:
+                with open(file_path, "rb") as file:
                     pdf_reader = PyPDF2.PdfReader(file)
                     for page in pdf_reader.pages:
                         page_text = page.extract_text()
@@ -293,26 +324,35 @@ def process_docs(state: State) -> dict:
                 text = text.strip()
                 if not text:
                     raise ValueError("No text extracted from PDF")
-                logger.info(f"Successfully extracted text from PDF: {doc_path}")
+                logger.info(f"Successfully extracted text from PDF: {doc}")
             
             elif file_ext == ".docx":
-                doc = Document(doc_path)
+                doc = Document(file_path)
                 for para in doc.paragraphs:
                     if para.text.strip():
                         text += para.text + " "
                 text = text.strip()
                 if not text:
                     raise ValueError("No text extracted from DOCX")
-                logger.info(f"Successfully extracted text from DOCX: {doc_path}")
+                logger.info(f"Successfully extracted text from DOCX: {doc}")
             
             else:
                 raise ValueError(f"Unsupported file format: {file_ext}")
             
             docs_data.append(f"Document: {text}")
+            
+            # Clean up temporary file if it was a URL
+            if is_url:
+                os.unlink(file_path)
+                logger.info(f"Deleted temporary file: {file_path}")
         
         except Exception as e:
-            errors.append(f"Document processing error for {doc_path}: {str(e)}")
-            logger.error(f"Failed to process document {doc_path}: {str(e)}")
+            errors.append(f"Document processing error for {doc}: {str(e)}")
+            logger.error(f"Failed to process document {doc}: {str(e)}")
+            # Clean up temporary file if it exists
+            if is_url and os.path.exists(file_path):
+                os.unlink(file_path)
+                logger.info(f"Deleted temporary file after error: {file_path}")
     
     return {
         "docs_data": docs_data,
@@ -600,6 +640,11 @@ async def get_topics():
 # FastAPI endpoints
 @app.post("/generate-article")
 async def generate_article(request: dict):
+    # Validate required fields
+    if not request.get("user_input_topic"):
+        logger.error("Missing required field: user_input_topic")
+        raise HTTPException(status_code=400, detail="Missing required field: user_input_topic")
+    
     initial_state = {
         "user_input_topic": request.get("user_input_topic", ""),
         "user_input_description": request.get("user_input_description", ""),
