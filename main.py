@@ -181,12 +181,26 @@ def extract_firecrawl_content(state: State) -> dict:
     for url in state["reference_urls"]:
         try:
             scraped = firecrawl.scrape_url(url)
-            content = scraped.get('markdown', 'No content found')
+            # Check if scraped is a dictionary or an object
+            if isinstance(scraped, dict):
+                content = scraped.get('markdown', 'No content found')
+            else:
+                # Assume it's a ScrapeResponse object with attributes
+                content = getattr(scraped, 'markdown', 'No content found')
+                if content == 'No content found' and hasattr(scraped, 'content'):
+                    content = scraped.content or 'No content found'
+            
             firecrawl_data.append(f"Firecrawl content from {url}: {content}")
             logger.info(f"Successfully extracted Firecrawl content from {url}")
         except Exception as e:
-            errors.append(f"Firecrawl extraction error for {url}: {str(e)}")
-            logger.error(f"Firecrawl extraction failed for {url}: {str(e)}")
+            error_msg = f"Firecrawl extraction error for {url}: {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg)
+            # Log response structure for debugging
+            try:
+                logger.debug(f"Firecrawl response for {url}: {scraped}")
+            except:
+                pass
     
     return {
         "firecrawl_data": firecrawl_data,
@@ -425,12 +439,11 @@ def generate_content(state: State) -> dict:
     
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
-
-    Adapt the language and level of detail in your response based on the specified audience: {state['target_audience']}:
-    Medical Professionals (Doctors): Use precise medical terminology, provide in-depth analysis, and include relevant clinical details and implications.
-    Students: Employ technical medical vocabulary, offer thorough explanations with educational focus, and include context to support learning.
-    General Public: Use simple, non-technical language, explain any medical terms in plain terms, and emphasize practical, easy-to-understand information.
-    Patients: Use clear, empathetic language, simplify medical terms with easy explanations, and focus on actionable, health-related advice.
+    Adjust language and detail for the audience:
+    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
+    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
+    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
+    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
     
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
@@ -690,7 +703,13 @@ async def generate_article(request: dict):
 async def extract_content(request: UrlRequest):
     try:
         scraped = firecrawl.scrape_url(request.url)
-        content = scraped.get('markdown', 'No content found')
+        # Handle both dictionary and object responses
+        if isinstance(scraped, dict):
+            content = scraped.get('markdown', 'No content found')
+        else:
+            content = getattr(scraped, 'markdown', 'No content found')
+            if content == 'No content found' and hasattr(scraped, 'content'):
+                content = scraped.content or 'No content found'
         return {
             "url": request.url,
             "content": content
