@@ -20,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from firecrawl import FirecrawlApp
 import http.client
 import re
+import PyPDF2
+from docx import Document
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -273,9 +275,48 @@ def process_docs(state: State) -> dict:
         }
     
     logger.info(f"Processing {len(state['docs_files'])} document files")
+    errors = []
+    docs_data = []
+    
+    for doc_path in state["docs_files"]:
+        try:
+            file_ext = os.path.splitext(doc_path)[1].lower()
+            text = ""
+            
+            if file_ext == ".pdf":
+                with open(doc_path, "rb") as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    for page in pdf_reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + " "
+                text = text.strip()
+                if not text:
+                    raise ValueError("No text extracted from PDF")
+                logger.info(f"Successfully extracted text from PDF: {doc_path}")
+            
+            elif file_ext == ".docx":
+                doc = Document(doc_path)
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        text += para.text + " "
+                text = text.strip()
+                if not text:
+                    raise ValueError("No text extracted from DOCX")
+                logger.info(f"Successfully extracted text from DOCX: {doc_path}")
+            
+            else:
+                raise ValueError(f"Unsupported file format: {file_ext}")
+            
+            docs_data.append(f"Document: {text}")
+        
+        except Exception as e:
+            errors.append(f"Document processing error for {doc_path}: {str(e)}")
+            logger.error(f"Failed to process document {doc_path}: {str(e)}")
+    
     return {
-        "docs_data": [],
-        "errors": [],
+        "docs_data": docs_data,
+        "errors": errors,
         "performance_metrics": {},
         "critical_error": False
     }
@@ -367,7 +408,6 @@ def generate_content(state: State) -> dict:
     - Only include the links in the references.
     - If you're uncertain about any information, indicate this clearly rather than guessing.
     - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
-
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
