@@ -352,13 +352,13 @@ def generate_content(state: State) -> dict:
     
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
-    - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Firecrawl content from [URL]: [content]'). Use the URL provided in the prefix.
+    - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Website content from [URL]: [content]'). Use the URL provided in the prefix.
     - **Documents**: Content extracted from document files, prefixed with 'Document:'.
-    - **YouTube**: Content transcribed from YouTube videos, prefixed with 'YouTube:'.
+    - **YouTube**: Content from YouTube videos, prefixed with 'YouTube:'.
     
     Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
-    - Extract Firecrawl URLs from the prefix 'Firecrawl content from [URL]' and use them unchanged.
+    - Extract Website URLs from the prefix 'Website content from [URL]' and use them unchanged.
     - For Document content, cite as "From document analysis" if no specific citation is available.
     - For YouTube content, cite as "From [YouTube video title]" if available.
     - Include a reference only if it has a valid URL from the data. If no URL exists, omit it—do NOT invent links (e.g., no '.example.com').
