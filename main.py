@@ -152,10 +152,11 @@ class State(TypedDict):
     youtube_links: List[str]
     docs_data: List[str]
     youtube_data: List[str]
-    generated_content: str
+    generated_content: strs
     errors: Annotated[List[str], operator.add]
     performance_metrics: Annotated[Dict[str, float], lambda x, y: {**x, **y}]
     critical_error: Annotated[bool, lambda x, y: x or y]
+    skip_perplexity: bool
 
 # LangGraph node functions
 @timeit
@@ -195,9 +196,12 @@ def process_user_input(state: State) -> dict:
     logger.info(f"Processing user input: {state['user_input_topic']}")
     topic = state["user_input_topic"]
     corrected_topic = topic.title()
-    logger.info(f"Using topic: '{corrected_topic}'")
+    # Check if any of reference_urls, docs_files, or youtube_links are non-empty
+    skip_perplexity = bool(state["reference_urls"] or state["docs_files"] or state["youtube_links"])
+    logger.info(f"Using topic: '{corrected_topic}', skip_perplexity: {skip_perplexity}")
     return {
         "user_input_topic": corrected_topic,
+        "skip_perplexity": skip_perplexity,
         "errors": [],
         "performance_metrics": {},
         "critical_error": False
@@ -327,13 +331,8 @@ def generate_content(state: State) -> dict:
         }
     current_date = datetime.date.today()
     
-    # Check if any of firecrawl_data, docs_data, or youtube_data is present
-    if state["firecrawl_data"] or state["docs_data"] or state["youtube_data"]:
-        perplexity_data = ""
-        logger.info("Non-empty Website, Documents, or YouTube data detected, setting Perplexity data to NULL")
-    else:
-        perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
-    
+    # Handle perplexity_data as None if skipped
+    perplexity_data = None if state["skip_perplexity"] else "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
@@ -385,7 +384,7 @@ def generate_content(state: State) -> dict:
     - Reference Data (YouTube): 
     {youtube_data if youtube_data else 'No YouTube data available'}
 
-    if Reference Data of (Website),(Documents) or (YouTube) has any kind of data then always use it and ignore the Reference Data (Perplexity)
+    If Reference Data (Website), (Documents), or (YouTube) has any kind of data, then Perplexity data should be ignored and set to None.
     """
     errors = []
     critical_error = False
@@ -496,6 +495,11 @@ def check_data_availability(state: State) -> dict:
         "critical_error": state["critical_error"]
     }
 
+def route_after_process_user_input(state: State) -> str:
+    if state["skip_perplexity"]:
+        return "extract_firecrawl_content"
+    return "search_perplexity"
+
 def route_after_check_data(state: State) -> str:
     return "generate_content"
 
@@ -511,13 +515,17 @@ workflow.add_node("generate_content", generate_content)
 workflow.add_node("validate_content", validate_content)
 
 workflow.set_entry_point("process_user_input")
-workflow.add_edge("process_user_input", "search_perplexity")
-workflow.add_edge("process_user_input", "extract_firecrawl_content")
-workflow.add_edge("process_user_input", "process_docs")
-workflow.add_edge("process_user_input", "process_youtube_links")
-workflow.add_edge("search_perplexity", "check_data_availability")
-workflow.add_edge("extract_firecrawl_content", "check_data_availability")
-workflow.add_edge("process_docs", "check_data_availability")
+workflow.add_conditional_edges(
+    "process_user_input",
+    route_after_process_user_input,
+    {
+        "search_perplexity": "search_perplexity",
+        "extract_firecrawl_content": "extract_firecrawl_content"
+    }
+)
+workflow.add_edge("search_perplexity", "extract_firecrawl_content")
+workflow.add_edge("extract_firecrawl_content", "process_docs")
+workflow.add_edge("process_docs", "process_youtube_links")
 workflow.add_edge("process_youtube_links", "check_data_availability")
 workflow.add_conditional_edges(
     "check_data_availability",
@@ -565,7 +573,8 @@ async def generate_article(request: dict):
         "generated_content": "",
         "errors": [],
         "performance_metrics": {},
-        "critical_error": False
+        "critical_error": False,
+        "skip_perplexity": False
     }
     logger.info("Starting workflow execution")
     start_time = time.time()
