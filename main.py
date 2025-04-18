@@ -372,12 +372,15 @@ def generate_content(state: State) -> dict:
     - Length: ~{length_words} words
     - Reference Data (Perplexity): 
     {perplexity_data if perplexity_data else 'No Perplexity data available'}
-    - Reference Data (Firecrawl): 
+    - Reference Data (Website): 
     {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
     - Reference Data (Documents): 
     {docs_data if docs_data else 'No Document data available'}
     - Reference Data (YouTube): 
     {youtube_data if youtube_data else 'No YouTube data available'}
+
+    if Reference Data of (Website),(Documents) or (YouTube) has any kind of data then always use it and ignore the Reference Data (Perplexity)
+
     """
     errors = []
     critical_error = False
