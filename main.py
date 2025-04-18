@@ -425,11 +425,12 @@ def generate_content(state: State) -> dict:
     
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
-    Adjust language and detail for the audience:
-    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
-    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
-    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
-    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
+
+    Adapt the language and level of detail in your response based on the specified audience: {state['target_audience']}:
+    Medical Professionals (Doctors): Use precise medical terminology, provide in-depth analysis, and include relevant clinical details and implications.
+    Students: Employ technical medical vocabulary, offer thorough explanations with educational focus, and include context to support learning.
+    General Public: Use simple, non-technical language, explain any medical terms in plain terms, and emphasize practical, easy-to-understand information.
+    Patients: Use clear, empathetic language, simplify medical terms with easy explanations, and focus on actionable, health-related advice.
     
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
