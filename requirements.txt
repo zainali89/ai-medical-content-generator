@@ -10,6 +10,7 @@ reportlab
 nest_asyncio
 gunicorn
 PyPDF2
+python-docx
 youtube_transcript_api
 google-api-python-client
 firecrawl
