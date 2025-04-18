@@ -327,7 +327,13 @@ def generate_content(state: State) -> dict:
         }
     current_date = datetime.date.today()
     
-    perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
+    # Check if any of firecrawl_data, docs_data, or youtube_data is present
+    if state["firecrawl_data"] or state["docs_data"] or state["youtube_data"]:
+        perplexity_data = ""
+        logger.info("Non-empty Website, Documents, or YouTube data detected, setting Perplexity data to NULL")
+    else:
+        perplexity_data = "\n".join([f"Perplexity: {item}" for item in state["perplexity_data"] if item])
+    
     firecrawl_data = "\n".join([f"Firecrawl: {item}" for item in state["firecrawl_data"] if item])
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
@@ -380,7 +386,6 @@ def generate_content(state: State) -> dict:
     {youtube_data if youtube_data else 'No YouTube data available'}
 
     if Reference Data of (Website),(Documents) or (YouTube) has any kind of data then always use it and ignore the Reference Data (Perplexity)
-
     """
     errors = []
     critical_error = False
