@@ -368,8 +368,10 @@ def generate_content(state: State) -> dict:
     - If you're uncertain about any information, indicate this clearly rather than guessing.
     - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
     - Example:
-            Correct Youtube: (link) 
-            Not Correct: Youtube Transcript : (link)
+            Correct: Youtube (link) 
+            Incorrect: Youtube Transcript  (link)
+            Correct: Reference content (link)
+            Incorrect: Firecrawl content from (link)
     
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
     - [Number]. Title (Author(s), Date). Link: [URL]
