@@ -373,6 +373,7 @@ def generate_content(state: State) -> dict:
     - [Number]. Title (Author(s), Date). Link: [URL]
 
     Make sure the link you return is always clickable
+    Make sure to include all reference links
     
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words
