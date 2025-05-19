@@ -18,3 +18,4 @@ langchain_google_genai
 browser_use
 playwright
 retrying
+google-genai
