@@ -441,7 +441,14 @@ def generate_content(state: State) -> dict:
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
     length_mapping = {"Short": 800, "Medium": 1700, "Long": 2700}
-    length_words = length_mapping.get(state["article_length"], 750)
+    length_words = length_mapping.get(state["article_length"])
+    print(state["user_input_topic"])
+    print(state["user_input_description"])
+    print(state["article_length"])
+    print(state["target_audience"])
+    print(state["perplexity_data"])
+    print(state["firecrawl_data"])
+    print(state["docs_data"])
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
     
