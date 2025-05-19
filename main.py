@@ -24,6 +24,8 @@ import PyPDF2
 from docx import Document
 import tempfile
 import urllib.parse
+from google import genai
+from google.genai import types
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -50,19 +52,25 @@ load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 SCHEDULER_API_URL = os.environ.get("SCHEDULER_API_URL", "http://localhost:8000")
 
 logger.info(f"OPENAI_API_KEY: {'Set' if OPENAI_API_KEY else 'Not set'}")
 logger.info(f"PERPLEXITY_API_KEY: {'Set' if PERPLEXITY_API_KEY else 'Not set'}")
 logger.info(f"FIRECRAWL_API_KEY: {'Set' if FIRECRAWL_API_KEY else 'Not set'}")
+logger.info(f"GEMINI_API_KEY: {'Set' if GEMINI_API_KEY else 'Not set'}")
 logger.info(f"SCHEDULER_API_URL: {SCHEDULER_API_URL}")
 
-if not all([OPENAI_API_KEY, PERPLEXITY_API_KEY, FIRECRAWL_API_KEY]):
+if not all([PERPLEXITY_API_KEY, FIRECRAWL_API_KEY, GEMINI_API_KEY]):
     raise ValueError("One or more required API keys are missing.")
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 logger.info("OpenAI client initialized.")
+
+# Initialize Google GenAI client
+genai_client = genai.Client(api_key=GEMINI_API_KEY)
+logger.info("Google GenAI client initialized.")
 
 # Initialize Firecrawl
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
@@ -485,22 +493,29 @@ def generate_content(state: State) -> dict:
     errors = []
     critical_error = False
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a medical content writer who ONLY uses provided reference data. Never invent or hallucinate information. If the reference data doesn't cover something, explicitly state that information is limited."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=8000,
-            temperature=0.3
+        # Using Google's Gemini instead of OpenAI
+        response_stream = genai_client.models.generate_content_stream(
+            model="gemini-2.5-flash-preview-04-17",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                top_p=0.9,
+                max_output_tokens=8000
+            )
         )
-        content = response.choices[0].message.content
-        logger.info("Content generated successfully")
+        
+        # Collect response chunks
+        response_chunks = []
+        for chunk in response_stream:
+            response_chunks.append(chunk.text)
+        content = "".join(response_chunks).strip()
+        
+        logger.info("Content generated successfully using Gemini")
     except Exception as e:
-        errors.append(f"OpenAI error: {str(e)}")
+        errors.append(f"Gemini API error: {str(e)}")
         content = ""
         critical_error = True
-        logger.error(f"Content generation failed: {str(e)}")
+        logger.error(f"Content generation failed with Gemini: {str(e)}")
     return {
         "generated_content": content,
         "errors": errors,
