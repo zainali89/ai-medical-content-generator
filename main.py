@@ -440,7 +440,7 @@ def generate_content(state: State) -> dict:
     docs_data = "\n".join([f"Document: {item}" for item in state["docs_data"] if item])
     youtube_data = "\n".join([f"YouTube: {item}" for item in state["youtube_data"] if item])
     
-    length_mapping = {"Short": 800, "Medium": 1700, "Long": 2700}
+    length_mapping = {"Short": 800, "Medium": 1200, "Long": 2200}
     length_words = length_mapping.get(state["article_length"])
     print(state["user_input_topic"])
     print(state["user_input_description"])
