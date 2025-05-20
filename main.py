@@ -452,6 +452,8 @@ def generate_content(state: State) -> dict:
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
     
+    IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%). Do not significantly exceed or fall below this word count. Structure your article to fit this length requirement.
+    
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
     
     Adjust language and detail for the audience:
@@ -500,6 +502,10 @@ def generate_content(state: State) -> dict:
     errors = []
     critical_error = False
     try:
+        # Estimate required tokens based on target word count (roughly 1.5 tokens per word)
+        estimated_tokens = int(length_words * 1.5)
+        max_tokens = min(8000, max(4000, estimated_tokens * 2))  # Ensure between 4000-8000 tokens
+        
         # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
             model="gemini-2.5-flash-preview-04-17",
@@ -507,7 +513,7 @@ def generate_content(state: State) -> dict:
             config=types.GenerateContentConfig(
                 temperature=0.3,
                 top_p=0.9,
-                max_output_tokens=8000
+                max_output_tokens=max_tokens
             )
         )
         
@@ -516,6 +522,17 @@ def generate_content(state: State) -> dict:
         for chunk in response_stream:
             response_chunks.append(chunk.text)
         content = "".join(response_chunks).strip()
+        
+        # Verify the word count matches the target length
+        word_count = len(content.split())
+        target_words = length_mapping.get(state["article_length"], 800)
+        min_words = int(target_words * 0.9)  # 10% below target
+        max_words = int(target_words * 1.1)  # 10% above target
+        
+        if min_words <= word_count <= max_words:
+            logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
+        else:
+            logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
         
         logger.info("Content generated successfully using Gemini")
     except Exception as e:
