@@ -485,6 +485,11 @@ def generate_content(state: State) -> dict:
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
 
+    ARTICLE FORMAT:
+    - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
+    - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
+    - Start directly with relevant content after the title.
+    
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
     Your response will be rejected if references are missing or incomplete. Allocate word count accordingly to ensure references fit.
 
@@ -520,9 +525,10 @@ def generate_content(state: State) -> dict:
     Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. 
 
     STRUCTURE OF YOUR RESPONSE:
-    1. Main article content
-    2. Mandatory "References" heading
-    3. Complete numbered reference list in this format ONLY:
+    1. Title: ONLY "{state['user_input_topic']}" (not prefixed with "Medical Topic:" or any other text)
+    2. Main article content (start immediately with relevant information)
+    3. Mandatory "References" heading
+    4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
     EVERY reference you cite in-text MUST appear in the references section. Plan your word count to ensure references are included.
