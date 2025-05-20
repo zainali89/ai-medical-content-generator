@@ -489,12 +489,16 @@ def generate_content(state: State) -> dict:
     - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
     - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
     - Start directly with relevant content after the title.
+    - Be concise and prioritize completion over verbose explanations.
     
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
-    Your response will be rejected if references are missing or incomplete. Allocate word count accordingly to ensure references fit.
+    Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
 
     IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
     Structure your article to fit this length requirement, ensuring references are never cut off.
+
+    TO PREVENT CUTOFFS: Be more concise in your explanations, use fewer examples, and ensure you have enough space for the references section.
+    DO NOT leave any sentences unfinished.
 
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
 
@@ -526,12 +530,12 @@ def generate_content(state: State) -> dict:
 
     STRUCTURE OF YOUR RESPONSE:
     1. Title: ONLY "{state['user_input_topic']}" (not prefixed with "Medical Topic:" or any other text)
-    2. Main article content (start immediately with relevant information)
+    2. Main article content (start immediately with relevant information, be concise)
     3. Mandatory "References" heading
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
-    EVERY reference you cite in-text MUST appear in the references section. Plan your word count to ensure references are included.
+    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
     Double-check that your response ends with complete references before submitting.
 
     - User Description: {state['user_input_description']}
@@ -550,9 +554,10 @@ def generate_content(state: State) -> dict:
     errors = []
     critical_error = False
     try:
-        # Estimate required tokens based on target word count (roughly 1.5 tokens per word)
-        estimated_tokens = int(length_words * 1.5)
-        max_tokens = min(8000, max(4000, estimated_tokens * 2))  # Ensure between 4000-8000 tokens
+        # Estimate required tokens based on target word count (use higher ratio for medical content)
+        estimated_tokens = int(length_words * 2.0)  # Increase from 1.5 to 2.0 for medical content
+        reserved_tokens = 1000  # Additional buffer for references and formatting
+        max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
         # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
