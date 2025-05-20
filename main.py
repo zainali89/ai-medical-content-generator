@@ -484,23 +484,27 @@ def generate_content(state: State) -> dict:
     print(state["docs_data"])
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
-    
-    IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%). Do not significantly exceed or fall below this word count. Structure your article to fit this length requirement.
-    
+
+    CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
+    Your response will be rejected if references are missing or incomplete. Allocate word count accordingly to ensure references fit.
+
+    IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
+    Structure your article to fit this length requirement, ensuring references are never cut off.
+
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
-    
+
     Adjust language and detail for the audience:
     - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
     - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
     - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
     - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
-    
+
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
     - **Firecrawl**: Scraped content prefixed with source URL (e.g., 'Website content from [URL]: [content]'). Use the URL provided in the prefix.
     - **Documents**: Content extracted from document files, prefixed with 'Document:'.
     - **YouTube**: Content from YouTube videos, prefixed with 'YouTube:'.
-    
+
     Rules for references and content:
     - Extract Perplexity URLs from lines like 'Link: [URL]' and use them unchanged.
     - Extract Website URLs from the prefix 'Website content from [URL]' and use them unchanged.
@@ -512,15 +516,20 @@ def generate_content(state: State) -> dict:
     - Only include the links in the references.
     - If you're uncertain about any information, indicate this clearly rather than guessing.
     - For any statistical claims, medical recommendations, or specific treatments, cite the exact source from the reference data.
-    
-    Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. End with a reference list in this format:
-    - [Number]. Title (Author(s), Date). Link: [URL]
 
-    Make sure the link you return is always clickable
-    Make sure to include all reference links
-    
+    Keep the tone objective and evidence-based, current as of {current_date}, and note missing data if applicable. 
+
+    STRUCTURE OF YOUR RESPONSE:
+    1. Main article content
+    2. Mandatory "References" heading
+    3. Complete numbered reference list in this format ONLY:
+       - [Number]. Title (Author(s), Date). Link: [URL]
+
+    EVERY reference you cite in-text MUST appear in the references section. Plan your word count to ensure references are included.
+    Double-check that your response ends with complete references before submitting.
+
     - User Description: {state['user_input_description']}
-    - Length: ~{length_words} words
+    - Length: ~{length_words} words (INCLUDING references)
     - Reference Data (Perplexity): 
     {perplexity_data if perplexity_data else 'No Perplexity data available'}
     - Reference Data (Website): 
