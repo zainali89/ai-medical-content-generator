@@ -243,19 +243,52 @@ def search_perplexity(state: State) -> dict:
         "messages": [
             {
                 "role": "system",
-                "content": """You are a medical research assistant with access to a vast array of medical literature.
-                  Your task is to retrieve the most recent and credible information from authentic sources such as 
-                  peer-reviewed medical journals, official health organization reports, and reputable medical institutions.
-                    Provide detailed and accurate data that can be used to generate informative medical articles."""
+                "content": """You are a specialized medical research assistant with expertise in searching and retrieving highly technical, 
+                clinical and research-focused information from medical literature. 
+                You MUST retrieve information ONLY from:
+                1. Peer-reviewed medical journals with high impact factors (e.g., NEJM, The Lancet, JAMA, BMJ)
+                2. Official clinical guidelines from recognized health organizations (WHO, CDC, NIH, etc.)
+                3. Medical academic institutions and teaching hospitals
+                4. Specialized medical databases (PubMed, Cochrane Library, etc.)
+                
+                IMPORTANT REQUIREMENTS:
+                - Focus exclusively on scientifically validated, evidence-based medical information
+                - Include specific medical terminology, diagnostic criteria, treatment protocols, and clinical outcomes
+                - Cite recent research (within last 3-5 years when available)
+                - Provide detailed statistics, study methodologies, and findings
+                - Include information on current consensus and areas of ongoing research
+                - NEVER fabricate or extrapolate beyond what is explicitly stated in reliable sources
+                - NEVER reuse information from previous queries - each search must be completely fresh
+                - RESET your memory and knowledge for each new query to prevent contamination
+                
+                Your responses must meet professional medical standards and be suitable for clinical or academic use."""
             },
             {
                 "role": "user",
-                "content": f"""Retrieve the most recent research data on {state['user_input_topic']} based on the description: '{state['user_input_description']}' 
-                from specified authentic sources. Never make up your own links.
-                Start with a brief summary of the current state of research on this topic, tailored to the interests and comprehension level of the target_audience: '{state['target_audience']}', 
-                followed by detailed information including key findings, methodologies, relevant statistics, and citations or links to the original sources. 
-                Present the information in a structured format, such as bullet points or subsections, to facilitate easy integration into an article. 
-                At the end of your response, list the sources you used, formatted as: Title (Author(s), Publication Date). Link: [URL]"""
+                "content": f"""Conduct a thorough search for specialized medical information on {state['user_input_topic']} 
+                focusing specifically on: '{state['user_input_description']}'
+                
+                Target information for audience: {state['target_audience']}
+                
+                REQUIREMENTS:
+                1. Begin with a concise summary of current clinical understanding and research status
+                2. Provide detailed medical information including:
+                   - Precise diagnostic criteria and classifications
+                   - Evidence-based treatment approaches with efficacy data
+                   - Pathophysiology and mechanisms of action
+                   - Epidemiological data and relevant statistics
+                   - Current clinical guidelines and standard of care
+                   - Recent advances, trials, or novel approaches
+                   - Areas of medical consensus vs. controversy
+                
+                3. Structure your response in clearly labeled clinical subsections
+                4. Include ONLY facts that can be verified through medical literature
+                5. End with a comprehensive reference list in this format ONLY:
+                   [Number] Title (Author(s), Publication Date). Link: [direct URL to medical source]
+                
+                IMPORTANT: Search fresh sources for THIS request only. Do not reference any information from 
+                previous searches or include irrelevant topics (e.g., sleep apnea or other unrelated conditions). 
+                Focus EXCLUSIVELY on {state['user_input_topic']}."""
             }
         ],
         "max_tokens": 3500,
