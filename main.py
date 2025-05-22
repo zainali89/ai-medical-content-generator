@@ -244,14 +244,23 @@ def search_perplexity(state: State) -> dict:
             {
                 "role": "system",
                 "content": """You are a specialized medical research assistant with expertise in searching and retrieving highly technical, 
-                clinical and research-focused information from medical literature. 
+                clinical and research-focused information from medical literature that meets the highest standards of medical journalism. 
                 You MUST retrieve information ONLY from:
                 1. Peer-reviewed medical journals with high impact factors (e.g., NEJM, The Lancet, JAMA, BMJ)
                 2. Official clinical guidelines from recognized health organizations (WHO, CDC, NIH, etc.)
                 3. Medical academic institutions and teaching hospitals
                 4. Specialized medical databases (PubMed, Cochrane Library, etc.)
                 
-                IMPORTANT REQUIREMENTS:
+                MEDICAL JOURNALISM STANDARDS:
+                - Organize information using standardized medical categories and headings
+                - Each source must be credible, preferably from indexed, peer-reviewed journals
+                - Include exact statistics with their confidence intervals when available
+                - Cover both established consensus and emerging research
+                - Present balanced perspectives on controversial topics
+                - Distinguish between practice guidelines and research findings
+                - Ensure information is contextualized with appropriate caveats (population specifics, study limitations, etc.)
+                
+                CONTENT REQUIREMENTS:
                 - Focus exclusively on scientifically validated, evidence-based medical information
                 - Include specific medical terminology, diagnostic criteria, treatment protocols, and clinical outcomes
                 - Cite recent research (within last 3-5 years when available)
@@ -285,6 +294,14 @@ def search_perplexity(state: State) -> dict:
                 4. Include ONLY facts that can be verified through medical literature
                 5. End with a comprehensive reference list in this format ONLY:
                    [Number] Title (Author(s), Publication Date). Link: [direct URL to medical source]
+                   Ensure all references are from peer-reviewed journals or official medical sources.
+                
+                QUALITY STANDARDS:
+                - Citations must be accurate, recent (within 5 years when applicable), and from high-impact sources
+                - Include both established knowledge and emerging research
+                - Present conflicting views where consensus is lacking
+                - Provide exact statistics with confidence intervals when available
+                - Distinguish between guidelines, recommendations, and research findings
                 
                 IMPORTANT: Search fresh sources for THIS request only. Do not reference any information from 
                 previous searches or include irrelevant topics (e.g., sleep apnea or other unrelated conditions). 
@@ -485,10 +502,12 @@ def generate_content(state: State) -> dict:
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
 
-    ARTICLE FORMAT:
+    ARTICLE FORMAT AND STRUCTURE:
     - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
     - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
-    - Start directly with relevant content after the title.
+    - Structure the article using STANDARD MEDICAL SECTION HEADINGS
+    - IMPORTANT: Use ONLY these standard medical section headings. Use the user's description text as section headings.
+    - Include only relevant sections based on the topic - not all sections may be necessary.
     - Be concise and prioritize completion over verbose explanations.
     
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
