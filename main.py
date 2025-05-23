@@ -586,7 +586,7 @@ def generate_content(state: State) -> dict:
         
         # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
-            model="gemini-2.5-pro-preview-05-06",
+            model="gemini-2.5-flash-preview-05-20",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.3,
