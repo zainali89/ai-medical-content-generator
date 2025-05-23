@@ -510,6 +510,13 @@ def generate_content(state: State) -> dict:
     - Include only relevant sections based on the topic - not all sections may be necessary.
     - Be concise and prioritize completion over verbose explanations.
     
+    CRITICAL TITLE REQUIREMENTS:
+    - The article must begin with the EXACT title: "{state['user_input_topic']}"
+    - DO NOT add any prefix like "Medical Topic:" or any other text before the title
+    - DO NOT expand, modify, or rewrite the title in ANY way
+    - DO NOT add subtitles or additional descriptive text to the title
+    - Keep the title EXACTLY as provided: "{state['user_input_topic']}"
+    
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
     Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
 
