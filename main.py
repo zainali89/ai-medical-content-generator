@@ -584,7 +584,7 @@ def generate_content(state: State) -> dict:
         reserved_tokens = 1000  # Additional buffer for references and formatting
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
-
+        # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
             model="gemini-2.5-flash-preview-05-20",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
