@@ -584,8 +584,8 @@ def generate_content(state: State) -> dict:
         reserved_tokens = 1000  # Additional buffer for references and formatting
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
-        # Using Google's Gemini instead of OpenAI
-        response_stream = genai_client.models.generate_content_stream(
+        # Using Google's Gemini with non-streaming API instead of streaming
+        response = genai_client.models.generate_content(
             model="gemini-2.5-flash-preview-05-20",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
@@ -595,11 +595,8 @@ def generate_content(state: State) -> dict:
             )
         )
         
-        # Collect response chunks
-        response_chunks = []
-        for chunk in response_stream:
-            response_chunks.append(chunk.text)
-        content = "".join(response_chunks).strip()
+        # Get content directly from the response
+        content = response.text.strip()
         
         # Verify the word count matches the target length
         word_count = len(content.split())
@@ -618,6 +615,7 @@ def generate_content(state: State) -> dict:
         content = ""
         critical_error = True
         logger.error(f"Content generation failed with Gemini: {str(e)}")
+    
     return {
         "generated_content": content,
         "errors": errors,
