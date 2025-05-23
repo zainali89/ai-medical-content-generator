@@ -275,12 +275,7 @@ def search_perplexity(state: State) -> dict:
             {
                 "role": "user",
                 "content": f"""Conduct a thorough search for specialized medical information on {state['user_input_topic']} 
-                
-                IMPORTANT: The following may contain either a description of what to focus on OR specific instructions.
-                If it contains instructions (words like "include", "focus on", etc.), use them to guide your search.
-                If it's just a topic description, then focus specifically on that aspect:
-                
-                '{state['user_input_description']}'
+                focusing specifically on: '{state['user_input_description']}'
                 
                 Target information for audience: {state['target_audience']}
                 
@@ -511,21 +506,9 @@ def generate_content(state: State) -> dict:
     - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
     - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
     - Structure the article using STANDARD MEDICAL SECTION HEADINGS
+    - IMPORTANT: Use ONLY these standard medical section headings. Use the user's description text as section headings.
     - Include only relevant sections based on the topic - not all sections may be necessary.
     - Be concise and prioritize completion over verbose explanations.
-    
-    CRITICAL TITLE REQUIREMENTS:
-    - The article must begin with the EXACT title: "{state['user_input_topic']}"
-    - DO NOT add any prefix like "Medical Topic:" or any other text before the title
-    - DO NOT expand, modify, or rewrite the title in ANY way
-    - DO NOT add subtitles or additional descriptive text to the title
-    - Keep the title EXACTLY as provided: "{state['user_input_topic']}"
-    
-    CRITICAL INSTRUCTION REQUIREMENTS:
-    - The user description field may contain special instructions about HOW to write the article
-    - If the user description contains phrases like "include", "focus on", "please make", or similar instruction language, 
-      FOLLOW these instructions exactly rather than writing ABOUT them
-    - IMPORTANT: The description "{state['user_input_description']}" may contain instructions - follow them, don't describe them
     
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
     Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
@@ -601,7 +584,7 @@ def generate_content(state: State) -> dict:
         reserved_tokens = 1000  # Additional buffer for references and formatting
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
-        # Using Google's Gemini instead of OpenAI
+
         response_stream = genai_client.models.generate_content_stream(
             model="gemini-2.5-flash-preview-05-20",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
