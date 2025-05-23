@@ -550,13 +550,19 @@ def generate_content(state: State) -> dict:
     STRUCTURE OF YOUR RESPONSE:
     1. Title: ONLY "{state['user_input_topic']}" (not prefixed with "Medical Topic:" or any other text)
     2. Main article content (start immediately with relevant information, be concise)
-    3. Mandatory "References" heading
+    3. Mandatory "References" section with heading "References"
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
-    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
-    Double-check that your response ends with complete references before submitting.
+    CRITICAL FORMAT REQUIREMENTS:
+    - Your response MUST END with the last reference. DO NOT add ANY text after the last reference.
+    - DO NOT include information about word count, metadata, or verification at the end of your response.
+    - DO NOT include statements like "This article is X words long" or "The references have been included as required."
+    - DO NOT include any form of signature, completion message, or additional explanations at the end.
+    - NEVER add phrases like "This meets the requirements" or any final verification text.
 
+    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
+    
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words (INCLUDING references)
     - Reference Data (Perplexity): 
@@ -580,7 +586,7 @@ def generate_content(state: State) -> dict:
         
         # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
-            model="gemini-2.5-flash-preview-04-17",
+            model="gemini-2.5-pro-preview-05-06",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.3,
