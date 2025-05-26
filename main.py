@@ -72,6 +72,18 @@ logger.info("OpenAI client initialized.")
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 logger.info("Google GenAI client initialized.")
 
+# Check for environment variables that might override model selection
+gemini_model_env = os.environ.get("GEMINI_MODEL")
+if gemini_model_env:
+    logger.info(f"Found GEMINI_MODEL environment variable: {gemini_model_env}")
+
+# Check if there's a default model configured
+try:
+    default_model = genai_client.default_model
+    logger.info(f"Gemini default model: {default_model}")
+except Exception as e:
+    logger.info("No default Gemini model configured or could not access it")
+
 # Initialize Firecrawl
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 logger.info("Firecrawl client initialized.")
@@ -581,8 +593,19 @@ def generate_content(state: State) -> dict:
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
         # Using Google's Gemini instead of OpenAI
+        model_name = "gemini-2.5-pro-preview-05-06"
+        logger.info(f"Attempting to use Gemini model: {model_name}")
+        
+        try:
+            # Log available models
+            available_models = genai_client.list_models()
+            model_names = [model.name for model in available_models]
+            logger.info(f"Available Gemini models: {model_names}")
+        except Exception as e:
+            logger.warning(f"Could not list available models: {str(e)}")
+        
         response_stream = genai_client.models.generate_content_stream(
-            model="gemini-2.5-pro-preview-05-06",
+            model=model_name,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -591,10 +614,14 @@ def generate_content(state: State) -> dict:
             )
         )
         
+        logger.info(f"Gemini API call initiated with model: {model_name}")
+        
         # Collect response chunks
         response_chunks = []
         for chunk in response_stream:
-            response_chunks.append(chunk.text)
+            # Check if chunk.text is not None before appending
+            if chunk.text is not None:
+                response_chunks.append(chunk.text)
         content = "".join(response_chunks).strip()
         
         # Verify the word count matches the target length
