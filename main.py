@@ -595,7 +595,7 @@ def generate_content(state: State) -> dict:
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
         # Using Google's Gemini instead of OpenAI
-        model_name = "gemini-2.5-flash-preview-05-20"
+        model_name = "gemini-2.5-pro-preview-05-06"
         logger.info(f"Attempting to use Gemini model: {model_name}")
         
         try:
