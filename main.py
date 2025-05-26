@@ -554,6 +554,8 @@ def generate_content(state: State) -> dict:
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
+    IMPORTANT: DO NOT include ANY additional text after the references section. Do not include word counts, notes about article length, or any other metadata at the end of your response.
+
     EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
     Double-check that your response ends with complete references before submitting.
 
@@ -580,7 +582,7 @@ def generate_content(state: State) -> dict:
         
         # Using Google's Gemini instead of OpenAI
         response_stream = genai_client.models.generate_content_stream(
-            model="gemini-2.5-flash-preview-04-17",
+            model="gemini-2.5-pro-preview-05-06",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.3,
