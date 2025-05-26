@@ -523,12 +523,12 @@ def generate_content(state: State) -> dict:
     - Be concise and prioritize completion over verbose explanations.
     
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
-    Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
+    Your response will be rejected if references are missing or incomplete. Reserve at least 20% of your word count for references.
 
     IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
     Structure your article to fit this length requirement, ensuring references are never cut off.
 
-    TO PREVENT CUTOFFS: Be more concise in your explanations, use fewer examples, and ensure you have enough space for the references section.
+    TO PREVENT CUTOFFS: Make the main content shorter to ensure you have enough space for the references section.
     DO NOT leave any sentences unfinished.
 
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
@@ -568,8 +568,10 @@ def generate_content(state: State) -> dict:
 
     IMPORTANT: DO NOT include ANY additional text after the references section. Do not include word counts, notes about article length, or any other metadata at the end of your response.
 
-    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
+    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 20% of your word count for references.
     Double-check that your response ends with complete references before submitting.
+
+    IMPORTANT: PRIORITIZE COMPLETING THE REFERENCES SECTION OVER ADDING MORE CONTENT. If you're running out of space, make the article content shorter to ensure you have room for references.
 
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words (INCLUDING references)
@@ -589,7 +591,7 @@ def generate_content(state: State) -> dict:
     try:
         # Estimate required tokens based on target word count (use higher ratio for medical content)
         estimated_tokens = int(length_words * 2.0)  # Increase from 1.5 to 2.0 for medical content
-        reserved_tokens = 1000  # Additional buffer for references and formatting
+        reserved_tokens = 2000  # Increased buffer for references and formatting
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
         # Using Google's Gemini instead of OpenAI
@@ -603,6 +605,12 @@ def generate_content(state: State) -> dict:
             logger.info(f"Available Gemini models: {model_names}")
         except Exception as e:
             logger.warning(f"Could not list available models: {str(e)}")
+        
+        # Add a safety check to adjust content length based on article length
+        if state["article_length"] == "Long":
+            # For longer articles, we need to ensure more space for references
+            logger.info("Long article detected, adjusting max_output_tokens to ensure room for references")
+            max_tokens = min(max_tokens, 7000)  # Limit to 7000 tokens to ensure completion
         
         response_stream = genai_client.models.generate_content_stream(
             model=model_name,
@@ -634,6 +642,76 @@ def generate_content(state: State) -> dict:
             logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
         else:
             logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
+        
+        # Check if references are included
+        if "References" not in content:
+            logger.warning("Generated content does not contain a 'References' section")
+            
+            # Try to generate references separately
+            logger.info("Attempting to generate references separately")
+            try:
+                references_prompt = f"""
+                Generate ONLY a "References" section for an article about {state['user_input_topic']}.
+                
+                The references should be based on the following data sources:
+                
+                - Reference Data (Perplexity): 
+                {perplexity_data if perplexity_data else 'No Perplexity data available'}
+                - Reference Data (Website): 
+                {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
+                - Reference Data (Documents): 
+                {docs_data if docs_data else 'No Document data available'}
+                - Reference Data (YouTube): 
+                {youtube_data if youtube_data else 'No YouTube data available'}
+                
+                Format the references section as follows:
+                
+                References
+                1. Title (Author(s), Date). Link: [URL]
+                2. Title (Author(s), Date). Link: [URL]
+                ... and so on.
+                
+                Extract URLs from:
+                - Perplexity data: Look for 'Link: [URL]' patterns
+                - Firecrawl data: Extract URLs from the prefix 'Firecrawl content from [URL]:'
+                - For Document content: Cite as "From document analysis"
+                - For YouTube content: Cite as "From [YouTube video title]" and include the video URL
+                
+                DO NOT invent or hallucinate any references. Only use what's available in the provided data.
+                """
+                
+                references_response = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=references_prompt)])],
+                    config=types.GenerateContentConfig(
+                        temperature=0.2,
+                        top_p=0.9,
+                        max_output_tokens=1500
+                    )
+                )
+                
+                if references_response.text:
+                    # Append the generated references to the content
+                    content = content + "\n\n" + references_response.text
+                    logger.info("Successfully generated and appended references")
+                else:
+                    errors.append("Failed to generate references separately")
+            except Exception as e:
+                logger.error(f"Error generating references separately: {str(e)}")
+                errors.append(f"Failed to generate references separately: {str(e)}")
+        else:
+            # Check if references section is at the end and has content
+            references_index = content.find("References")
+            if references_index > 0:
+                references_section = content[references_index:]
+                if len(references_section.split()) < 20:  # Rough check to see if references section has content
+                    logger.warning("References section appears to be too short or incomplete")
+                    errors.append("References section may be incomplete")
+                else:
+                    logger.info(f"References section found with approximately {len(references_section.split())} words")
+            else:
+                logger.warning("References section not found at expected position")
+                errors.append("References section not properly formatted")
         
         logger.info("Content generated successfully using Gemini")
     except Exception as e:
