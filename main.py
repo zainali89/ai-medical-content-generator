@@ -522,7 +522,7 @@ def generate_content(state: State) -> dict:
     - Include only relevant sections based on the topic - not all sections may be necessary.
     - Be concise and prioritize completion over verbose explanations.
     
-    CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
+    CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE "REFERENCES" SECTION AT THE END WITH PROPERLY FORMATTED CITATIONS. This is non-negotiable.
     Your response will be rejected if references are missing or incomplete. Reserve at least 20% of your word count for references.
 
     IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
@@ -562,7 +562,7 @@ def generate_content(state: State) -> dict:
     STRUCTURE OF YOUR RESPONSE:
     1. Title: ONLY "{state['user_input_topic']}" (not prefixed with "Medical Topic:" or any other text)
     2. Main article content (start immediately with relevant information, be concise)
-    3. Mandatory "References" heading
+    3. Mandatory "References" heading (exactly as shown: "References")
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
@@ -630,7 +630,23 @@ def generate_content(state: State) -> dict:
             # Check if chunk.text is not None before appending
             if chunk.text is not None:
                 response_chunks.append(chunk.text)
+            # If text is None but has parts, try to extract text from parts
+            elif hasattr(chunk, 'parts'):
+                for part in chunk.parts:
+                    if hasattr(part, 'text') and part.text:
+                        response_chunks.append(part.text)
+        
         content = "".join(response_chunks).strip()
+        
+        # If content is empty, try to extract content from the final response if available
+        if not content and hasattr(response_stream, 'result'):
+            result = response_stream.result
+            if hasattr(result, 'text') and result.text:
+                content = result.text
+            elif hasattr(result, 'parts'):
+                for part in result.parts:
+                    if hasattr(part, 'text') and part.text:
+                        content += part.text
         
         # Verify the word count matches the target length
         word_count = len(content.split())
@@ -642,76 +658,6 @@ def generate_content(state: State) -> dict:
             logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
         else:
             logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
-        
-        # Check if references are included
-        if "References" not in content:
-            logger.warning("Generated content does not contain a 'References' section")
-            
-            # Try to generate references separately
-            logger.info("Attempting to generate references separately")
-            try:
-                references_prompt = f"""
-                Generate ONLY a "References" section for an article about {state['user_input_topic']}.
-                
-                The references should be based on the following data sources:
-                
-                - Reference Data (Perplexity): 
-                {perplexity_data if perplexity_data else 'No Perplexity data available'}
-                - Reference Data (Website): 
-                {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
-                - Reference Data (Documents): 
-                {docs_data if docs_data else 'No Document data available'}
-                - Reference Data (YouTube): 
-                {youtube_data if youtube_data else 'No YouTube data available'}
-                
-                Format the references section as follows:
-                
-                References
-                1. Title (Author(s), Date). Link: [URL]
-                2. Title (Author(s), Date). Link: [URL]
-                ... and so on.
-                
-                Extract URLs from:
-                - Perplexity data: Look for 'Link: [URL]' patterns
-                - Firecrawl data: Extract URLs from the prefix 'Firecrawl content from [URL]:'
-                - For Document content: Cite as "From document analysis"
-                - For YouTube content: Cite as "From [YouTube video title]" and include the video URL
-                
-                DO NOT invent or hallucinate any references. Only use what's available in the provided data.
-                """
-                
-                references_response = genai_client.models.generate_content(
-                    model=model_name,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=references_prompt)])],
-                    config=types.GenerateContentConfig(
-                        temperature=0.2,
-                        top_p=0.9,
-                        max_output_tokens=1500
-                    )
-                )
-                
-                if references_response.text:
-                    # Append the generated references to the content
-                    content = content + "\n\n" + references_response.text
-                    logger.info("Successfully generated and appended references")
-                else:
-                    errors.append("Failed to generate references separately")
-            except Exception as e:
-                logger.error(f"Error generating references separately: {str(e)}")
-                errors.append(f"Failed to generate references separately: {str(e)}")
-        else:
-            # Check if references section is at the end and has content
-            references_index = content.find("References")
-            if references_index > 0:
-                references_section = content[references_index:]
-                if len(references_section.split()) < 20:  # Rough check to see if references section has content
-                    logger.warning("References section appears to be too short or incomplete")
-                    errors.append("References section may be incomplete")
-                else:
-                    logger.info(f"References section found with approximately {len(references_section.split())} words")
-            else:
-                logger.warning("References section not found at expected position")
-                errors.append("References section not properly formatted")
         
         logger.info("Content generated successfully using Gemini")
     except Exception as e:
