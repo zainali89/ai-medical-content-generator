@@ -72,18 +72,6 @@ logger.info("OpenAI client initialized.")
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 logger.info("Google GenAI client initialized.")
 
-# Check for environment variables that might override model selection
-gemini_model_env = os.environ.get("GEMINI_MODEL")
-if gemini_model_env:
-    logger.info(f"Found GEMINI_MODEL environment variable: {gemini_model_env}")
-
-# Check if there's a default model configured
-try:
-    default_model = genai_client.default_model
-    logger.info(f"Gemini default model: {default_model}")
-except Exception as e:
-    logger.info("No default Gemini model configured or could not access it")
-
 # Initialize Firecrawl
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 logger.info("Firecrawl client initialized.")
@@ -256,23 +244,14 @@ def search_perplexity(state: State) -> dict:
             {
                 "role": "system",
                 "content": """You are a specialized medical research assistant with expertise in searching and retrieving highly technical, 
-                clinical and research-focused information from medical literature that meets the highest standards of medical journalism. 
+                clinical and research-focused information from medical literature. 
                 You MUST retrieve information ONLY from:
                 1. Peer-reviewed medical journals with high impact factors (e.g., NEJM, The Lancet, JAMA, BMJ)
                 2. Official clinical guidelines from recognized health organizations (WHO, CDC, NIH, etc.)
                 3. Medical academic institutions and teaching hospitals
                 4. Specialized medical databases (PubMed, Cochrane Library, etc.)
                 
-                MEDICAL JOURNALISM STANDARDS:
-                - Organize information using standardized medical categories and headings
-                - Each source must be credible, preferably from indexed, peer-reviewed journals
-                - Include exact statistics with their confidence intervals when available
-                - Cover both established consensus and emerging research
-                - Present balanced perspectives on controversial topics
-                - Distinguish between practice guidelines and research findings
-                - Ensure information is contextualized with appropriate caveats (population specifics, study limitations, etc.)
-                
-                CONTENT REQUIREMENTS:
+                IMPORTANT REQUIREMENTS:
                 - Focus exclusively on scientifically validated, evidence-based medical information
                 - Include specific medical terminology, diagnostic criteria, treatment protocols, and clinical outcomes
                 - Cite recent research (within last 3-5 years when available)
@@ -306,14 +285,6 @@ def search_perplexity(state: State) -> dict:
                 4. Include ONLY facts that can be verified through medical literature
                 5. End with a comprehensive reference list in this format ONLY:
                    [Number] Title (Author(s), Publication Date). Link: [direct URL to medical source]
-                   Ensure all references are from peer-reviewed journals or official medical sources.
-                
-                QUALITY STANDARDS:
-                - Citations must be accurate, recent (within 5 years when applicable), and from high-impact sources
-                - Include both established knowledge and emerging research
-                - Present conflicting views where consensus is lacking
-                - Provide exact statistics with confidence intervals when available
-                - Distinguish between guidelines, recommendations, and research findings
                 
                 IMPORTANT: Search fresh sources for THIS request only. Do not reference any information from 
                 previous searches or include irrelevant topics (e.g., sleep apnea or other unrelated conditions). 
@@ -514,30 +485,74 @@ def generate_content(state: State) -> dict:
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
 
-    ARTICLE FORMAT AND STRUCTURE:
+    ARTICLE FORMAT:
     - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
     - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
-    - Structure the article using STANDARD MEDICAL SECTION HEADINGS
-    - IMPORTANT: Use ONLY these standard medical section headings. Use the user's description text as section headings.
-    - Include only relevant sections based on the topic - not all sections may be necessary.
+    - Start directly with relevant content after the title.
     - Be concise and prioritize completion over verbose explanations.
     
+    ARTICLE STRUCTURE: 
+    {
+        # Check if user provided specific structure instructions in description
+        "Follow the structure explicitly requested in the Article Requirements below." 
+        if "structure:" in state['user_input_description'].lower() or 
+           "format:" in state['user_input_description'].lower() or
+           "section" in state['user_input_description'].lower() or
+           "abstract" in state['user_input_description'].lower() or
+           "introduction" in state['user_input_description'].lower()
+        else 
+        "Use a standard academic structure with appropriate headings and subheadings."
+    }
+    
     CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
-    Your response will be rejected if references are missing or incomplete. Reserve at least 20% of your word count for references.
+    Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
 
     IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
     Structure your article to fit this length requirement, ensuring references are never cut off.
 
-    TO PREVENT CUTOFFS: Make the main content shorter to ensure you have enough space for the references section.
+    TO PREVENT CUTOFFS: Be more concise in your explanations, use fewer examples, and ensure you have enough space for the references section.
     DO NOT leave any sentences unfinished.
 
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
 
-    Adjust language and detail for the audience:
-    - Medical Professionals (Doctors): Employ precise medical terminology and provide comprehensive, detailed analysis.
-    - Students: Utilize technical medical vocabulary and deliver thorough, educational analysis.
-    - General Public: Use simple, everyday words, clarify any complex terms, and highlight useful, easy-to-apply information.
-    - Patients: Use clear, straightforward language, explain medical terms simply, and emphasize practical, health-related advice
+    Adjust language and detail for the audience - this is CRITICAL:
+    
+    - Doctors: 
+      * Use highly technical medical terminology without explanations
+      * Include detailed physiological mechanisms and pathways
+      * Focus on clinical implications, treatment protocols, and diagnostic criteria
+      * Discuss research methodologies and statistical significance in depth
+      * Present evidence-based recommendations with strength of evidence ratings
+      * Maintain formal, academic tone throughout
+      * Structure with clinical subheadings (e.g., Pathophysiology, Clinical Presentation, etc.)
+    
+    - Students: 
+      * Use technical medical vocabulary with brief explanations of complex concepts
+      * Balance theoretical knowledge with practical clinical applications
+      * Include clear learning points and educational summaries
+      * Explain mechanisms and connections between concepts
+      * Use a moderate level of formality with an educational focus
+      * Structure with educational subheadings that build knowledge progressively
+    
+    - General Public: 
+      * Use everyday language, substituting medical jargon with simple terms
+      * Add clear explanations for ANY medical terms that must be included
+      * Focus on practical implications for everyday life and self-management
+      * Use relatable analogies and examples to explain complex concepts
+      * Keep sentences and paragraphs shorter and more digestible
+      * Maintain a conversational, accessible tone throughout
+      * Structure with reader-friendly question-based subheadings
+    
+    - Researchers:
+      * Use sophisticated technical language and specialty-specific terminology
+      * Focus heavily on methodologies, limitations, and gaps in current research
+      * Include detailed discussion of study designs and statistical analyses
+      * Emphasize emerging research directions and unanswered questions
+      * Maintain highly formal academic tone with scientific precision
+      * Structure with research-oriented subheadings (e.g., Current Evidence, Research Gaps)
+    
+    You MUST follow the appropriate style for the selected audience ({state['target_audience']}) without deviation.
+    The differences in tone, language, and content focus should be IMMEDIATELY obvious to readers.
 
     Use the reference data below to support claims, ensuring the article is engaging and accessible. The data includes:
     - **Perplexity**: Text with a 'Sources' section (e.g., 'Title (Author(s), Date). Link: [URL]'). Use URLs exactly as provided.
@@ -566,14 +581,10 @@ def generate_content(state: State) -> dict:
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
-    IMPORTANT: DO NOT include ANY additional text after the references section. Do not include word counts, notes about article length, or any other metadata at the end of your response.
-
-    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 20% of your word count for references.
+    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
     Double-check that your response ends with complete references before submitting.
 
-    IMPORTANT: PRIORITIZE COMPLETING THE REFERENCES SECTION OVER ADDING MORE CONTENT. If you're running out of space, make the article content shorter to ensure you have room for references.
-
-    - User Description: {state['user_input_description']}
+    - Article Requirements: {state['user_input_description']}
     - Length: ~{length_words} words (INCLUDING references)
     - Reference Data (Perplexity): 
     {perplexity_data if perplexity_data else 'No Perplexity data available'}
@@ -591,29 +602,12 @@ def generate_content(state: State) -> dict:
     try:
         # Estimate required tokens based on target word count (use higher ratio for medical content)
         estimated_tokens = int(length_words * 2.0)  # Increase from 1.5 to 2.0 for medical content
-        reserved_tokens = 2000  # Increased buffer for references and formatting
+        reserved_tokens = 1000  # Additional buffer for references and formatting
         max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
         # Using Google's Gemini instead of OpenAI
-        model_name = "gemini-2.5-pro-preview-05-06"
-        logger.info(f"Attempting to use Gemini model: {model_name}")
-        
-        try:
-            # Log available models
-            available_models = genai_client.list_models()
-            model_names = [model.name for model in available_models]
-            logger.info(f"Available Gemini models: {model_names}")
-        except Exception as e:
-            logger.warning(f"Could not list available models: {str(e)}")
-        
-        # Add a safety check to adjust content length based on article length
-        if state["article_length"] == "Long":
-            # For longer articles, we need to ensure more space for references
-            logger.info("Long article detected, adjusting max_output_tokens to ensure room for references")
-            max_tokens = min(max_tokens, 7000)  # Limit to 7000 tokens to ensure completion
-        
         response_stream = genai_client.models.generate_content_stream(
-            model=model_name,
+            model="gemini-2.5-flash-preview-04-17",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -622,14 +616,10 @@ def generate_content(state: State) -> dict:
             )
         )
         
-        logger.info(f"Gemini API call initiated with model: {model_name}")
-        
         # Collect response chunks
         response_chunks = []
         for chunk in response_stream:
-            # Check if chunk.text is not None before appending
-            if chunk.text is not None:
-                response_chunks.append(chunk.text)
+            response_chunks.append(chunk.text)
         content = "".join(response_chunks).strip()
         
         # Verify the word count matches the target length
@@ -642,76 +632,6 @@ def generate_content(state: State) -> dict:
             logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
         else:
             logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
-        
-        # Check if references are included
-        if "References" not in content:
-            logger.warning("Generated content does not contain a 'References' section")
-            
-            # Try to generate references separately
-            logger.info("Attempting to generate references separately")
-            try:
-                references_prompt = f"""
-                Generate ONLY a "References" section for an article about {state['user_input_topic']}.
-                
-                The references should be based on the following data sources:
-                
-                - Reference Data (Perplexity): 
-                {perplexity_data if perplexity_data else 'No Perplexity data available'}
-                - Reference Data (Website): 
-                {firecrawl_data if firecrawl_data else 'No Firecrawl data available'}
-                - Reference Data (Documents): 
-                {docs_data if docs_data else 'No Document data available'}
-                - Reference Data (YouTube): 
-                {youtube_data if youtube_data else 'No YouTube data available'}
-                
-                Format the references section as follows:
-                
-                References
-                1. Title (Author(s), Date). Link: [URL]
-                2. Title (Author(s), Date). Link: [URL]
-                ... and so on.
-                
-                Extract URLs from:
-                - Perplexity data: Look for 'Link: [URL]' patterns
-                - Firecrawl data: Extract URLs from the prefix 'Firecrawl content from [URL]:'
-                - For Document content: Cite as "From document analysis"
-                - For YouTube content: Cite as "From [YouTube video title]" and include the video URL
-                
-                DO NOT invent or hallucinate any references. Only use what's available in the provided data.
-                """
-                
-                references_response = genai_client.models.generate_content(
-                    model=model_name,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=references_prompt)])],
-                    config=types.GenerateContentConfig(
-                        temperature=0.2,
-                        top_p=0.9,
-                        max_output_tokens=1500
-                    )
-                )
-                
-                if references_response.text:
-                    # Append the generated references to the content
-                    content = content + "\n\n" + references_response.text
-                    logger.info("Successfully generated and appended references")
-                else:
-                    errors.append("Failed to generate references separately")
-            except Exception as e:
-                logger.error(f"Error generating references separately: {str(e)}")
-                errors.append(f"Failed to generate references separately: {str(e)}")
-        else:
-            # Check if references section is at the end and has content
-            references_index = content.find("References")
-            if references_index > 0:
-                references_section = content[references_index:]
-                if len(references_section.split()) < 20:  # Rough check to see if references section has content
-                    logger.warning("References section appears to be too short or incomplete")
-                    errors.append("References section may be incomplete")
-                else:
-                    logger.info(f"References section found with approximately {len(references_section.split())} words")
-            else:
-                logger.warning("References section not found at expected position")
-                errors.append("References section not properly formatted")
         
         logger.info("Content generated successfully using Gemini")
     except Exception as e:
