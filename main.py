@@ -588,56 +588,183 @@ def generate_content(state: State) -> dict:
     """
     errors = []
     critical_error = False
-    try:
-        # Using Google's Gemini with maximum tokens to prevent truncation
-        model_name = "gemini-2.5-pro-preview-05-06"
-        logger.info(f"Attempting to use Gemini model: {model_name}")
+    
+    # Track attempts for retry logic
+    max_attempts = 3
+    attempt = 0
+    content = ""
+    
+    while attempt < max_attempts and not content:
+        attempt += 1
+        logger.info(f"Content generation attempt {attempt} of {max_attempts}")
         
         try:
-            # Log available models
-            available_models = genai_client.list_models()
-            model_names = [model.name for model in available_models]
-            logger.info(f"Available Gemini models: {model_names}")
+            # Using Google's Gemini with maximum tokens to prevent truncation
+            model_name = "gemini-2.5-pro-preview-05-06"
+            logger.info(f"Attempting to use Gemini model: {model_name}")
+            
+            try:
+                # Log available models
+                available_models = genai_client.list_models()
+                model_names = [model.name for model in available_models]
+                logger.info(f"Available Gemini models: {model_names}")
+            except Exception as e:
+                logger.warning(f"Could not list available models: {str(e)}")
+            
+            # Set maximum output tokens to ensure full response
+            max_tokens = 8192  # Using maximum allowed tokens
+            logger.info(f"Using maximum output tokens: {max_tokens}")
+            
+            # Add detailed logging
+            logger.info(f"Prompt length: {len(prompt)} characters, ~{len(prompt.split())} words")
+            
+            # Use synchronous non-streaming API to avoid streaming issues
+            try:
+                logger.info("Making Gemini API call with non-streaming generate_content")
+                response = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+                    config=types.GenerateContentConfig(
+                        temperature=0.3,
+                        top_p=0.9,
+                        max_output_tokens=max_tokens
+                    )
+                )
+                
+                logger.info(f"Gemini API call completed, response type: {type(response)}")
+                
+                # Log detailed response information
+                if response:
+                    logger.info(f"Response object attributes: {dir(response)}")
+                    
+                    # Check for text attribute
+                    if hasattr(response, 'text'):
+                        logger.info(f"Response has text attribute of type: {type(response.text)}")
+                        if response.text:
+                            logger.info(f"Response text length: {len(response.text)} characters")
+                        else:
+                            logger.warning("Response text attribute is empty or None")
+                    else:
+                        logger.warning("Response has no text attribute")
+                        
+                    # Check for parts attribute
+                    if hasattr(response, 'parts'):
+                        logger.info(f"Response has parts attribute: {len(getattr(response, 'parts', []))} parts")
+                    
+                    # Check for candidates
+                    if hasattr(response, 'candidates'):
+                        candidates = getattr(response, 'candidates', [])
+                        logger.info(f"Response has {len(candidates)} candidates")
+                        for i, candidate in enumerate(candidates):
+                            logger.info(f"Candidate {i} attributes: {dir(candidate)}")
+                            
+                            if hasattr(candidate, 'content'):
+                                content_obj = getattr(candidate, 'content', None)
+                                logger.info(f"Candidate {i} has content: {content_obj is not None}")
+                                
+                                if content_obj and hasattr(content_obj, 'parts'):
+                                    parts = getattr(content_obj, 'parts', [])
+                                    logger.info(f"Candidate {i} content has {len(parts)} parts")
+                                    
+                                    for j, part in enumerate(parts):
+                                        logger.info(f"Candidate {i} part {j} type: {type(part)}")
+                                        if hasattr(part, 'text'):
+                                            part_text = getattr(part, 'text', '')
+                                            logger.info(f"Candidate {i} part {j} text length: {len(part_text) if part_text else 0} chars")
+                    
+                    # Check for finish_reason if available
+                    if hasattr(response, 'finish_reason') or hasattr(response, 'usage'):
+                        logger.info(f"Response finish_reason: {getattr(response, 'finish_reason', 'Not available')}")
+                        logger.info(f"Response usage: {getattr(response, 'usage', 'Not available')}")
+                else:
+                    logger.error("Received None response from Gemini API")
+                
+                # Extract content from response
+                content = ""
+                if response and response.text:
+                    content = response.text.strip()
+                    logger.info(f"Successfully extracted text content, length: {len(content)} chars")
+                elif response and hasattr(response, 'candidates'):
+                    # Try to extract content from candidates
+                    candidates = getattr(response, 'candidates', [])
+                    logger.info(f"Attempting to extract content from {len(candidates)} candidates")
+                    
+                    for candidate in candidates:
+                        if hasattr(candidate, 'content'):
+                            content_obj = getattr(candidate, 'content', None)
+                            if content_obj and hasattr(content_obj, 'parts'):
+                                parts = getattr(content_obj, 'parts', [])
+                                for part in parts:
+                                    if hasattr(part, 'text') and getattr(part, 'text', ''):
+                                        part_text = getattr(part, 'text', '')
+                                        logger.info(f"Found text in candidate part: {len(part_text)} chars")
+                                        content += part_text
+                    
+                    if content:
+                        logger.info(f"Successfully extracted content from candidates, length: {len(content)} chars")
+                    else:
+                        logger.warning("Could not extract content from candidates")
+                else:
+                    logger.error("No text content in response and no candidates available")
+                
+                if not content:
+                    logger.warning(f"Empty content received on attempt {attempt}, will retry if attempts remain")
+                    # Wait before retrying
+                    time.sleep(2)
+                    continue
+            except Exception as api_error:
+                logger.error(f"Gemini API call error: {str(api_error)}")
+                logger.error(f"API error traceback: {traceback.format_exc()}")
+                if attempt < max_attempts:
+                    logger.info(f"Will retry after API error, attempt {attempt} of {max_attempts}")
+                    time.sleep(2)
+                    continue
+                else:
+                    raise  # Re-raise after max attempts
+            
+            # Log content length but don't apply any restrictions
+            word_count = len(content.split())
+            target_words = length_mapping.get(state["article_length"], 800)
+            logger.info(f"Generated content word count: {word_count} (target: {target_words})")
+            
+            # Check for common issues
+            has_references = "References" in content
+            logger.info(f"References section included: {has_references}")
+            
+            # Log first and last 100 characters to verify content start/end
+            if content:
+                logger.info(f"Content first 100 chars: {content[:100].replace(chr(10), ' ')}")
+                logger.info(f"Content last 100 chars: {content[-100:].replace(chr(10), ' ')}")
+            
+            if word_count < 50 and attempt < max_attempts:
+                logger.warning(f"Content too short ({word_count} words), retrying generation")
+                content = ""  # Reset to trigger retry
+                time.sleep(2)
+                continue
+                
+            logger.info(f"Content generation successful on attempt {attempt}")
+            break  # Exit loop if we have content
+            
         except Exception as e:
-            logger.warning(f"Could not list available models: {str(e)}")
-        
-        # Set maximum output tokens to ensure full response
-        max_tokens = 8192  # Using maximum allowed tokens
-        logger.info(f"Using maximum output tokens: {max_tokens}")
-        
-        # Use synchronous non-streaming API to avoid streaming issues
-        response = genai_client.models.generate_content(
-            model=model_name,
-            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                top_p=0.9,
-                max_output_tokens=max_tokens
-            )
-        )
-        
-        logger.info(f"Gemini API call completed")
-        
-        # Extract content from response
-        content = ""
-        if response and response.text:
-            content = response.text.strip()
-        
-        # Log content length but don't apply any restrictions
-        word_count = len(content.split())
-        target_words = length_mapping.get(state["article_length"], 800)
-        logger.info(f"Generated content word count: {word_count} (target: {target_words})")
-        
-        has_references = "References" in content
-        logger.info(f"References section included: {has_references}")
-        
-        logger.info("Content generated successfully using Gemini")
-    except Exception as e:
-        errors.append(f"Gemini API error: {str(e)}")
-        content = ""
+            logger.error(f"Content generation error on attempt {attempt}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            if attempt < max_attempts:
+                logger.info(f"Will retry after error, attempt {attempt} of {max_attempts}")
+                time.sleep(2)
+                continue
+            else:
+                errors.append(f"Gemini API error after {max_attempts} attempts: {str(e)}")
+                content = ""
+                critical_error = True
+                break
+    
+    if not content:
+        errors.append(f"Failed to generate content after {max_attempts} attempts")
         critical_error = True
-        logger.error(f"Content generation failed with Gemini: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"Content generation failed after {max_attempts} attempts")
+    else:
+        logger.info("Content generated successfully using Gemini")
+        
     return {
         "generated_content": content,
         "errors": errors,
