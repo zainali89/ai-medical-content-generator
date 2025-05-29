@@ -1,6 +1,6 @@
-import logging  
+import logging 
 import os 
-from dotenv import load_dotenv  
+from dotenv import load_dotenv 
 import json
 import requests
 from typing import TypedDict, List, Dict, Annotated
@@ -844,24 +844,144 @@ async def generate_article(request: dict):
     logger.info("Starting workflow execution")
     start_time = time.time()
     try:
-        final_state = langgraph_app.invoke(initial_state)
+        # Capture agent execution trace
+        agent_logs = []
+        
+        # Define length mapping (copy from generate_content function)
+        length_mapping = {"Short": 800, "Medium": 1200, "Long": 2200}
+        
+        # Track states through the workflow
+        def log_agent_step(agent_name, input_state, output_state):
+            agent_logs.append({
+                "timestamp": datetime.datetime.now().isoformat(),
+                "agent": agent_name,
+                "input": {k: (v if k not in ["perplexity_data", "firecrawl_data", "docs_data", "youtube_data", "generated_content"] 
+                              else f"{len(v if isinstance(v, list) else v.split()) if v else 0} items") 
+                         for k, v in input_state.items()},
+                "output": {k: (v if k not in ["perplexity_data", "firecrawl_data", "docs_data", "youtube_data", "generated_content"] 
+                               else f"{len(v if isinstance(v, list) else v.split()) if v else 0} items") 
+                          for k, v in output_state.items() if k not in input_state or input_state[k] != output_state[k]},
+                "errors": output_state.get("errors", []),
+                "model_used": "gemini-2.5-pro-preview-05-06" if agent_name == "generate_content" else 
+                             "gpt-4o-mini" if agent_name == "validate_content" else
+                             "sonar-reasoning" if agent_name == "search_perplexity" else
+                             "None"
+            })
+            
+            # Log specific details about content generation
+            if agent_name == "generate_content" and output_state.get("generated_content"):
+                word_count = len(output_state["generated_content"].split())
+                target_words = length_mapping.get(input_state["article_length"], 800)
+                logger.info(f"Content generation details: Model=gemini-2.5-pro-preview-05-06, Words={word_count}, Target={target_words}")
+                
+                # Check if references section exists
+                has_references = "References" in output_state["generated_content"]
+                logger.info(f"References section included: {has_references}")
+            
+            # Log validation details
+            if agent_name == "validate_content":
+                logger.info(f"Content validation: Model=gpt-4o-mini, Valid={not bool(output_state.get('errors'))}")
+        
+        # Patching the invoke method to log steps (this would be better with LangGraph's tracing, but we're adding it manually)
+        original_invoke = langgraph_app.invoke
+        
+        def invoke_with_logging(state):
+            current_state = state.copy()
+            
+            # Process initial state
+            process_result = process_user_input(current_state)
+            updated_state = {**current_state, **process_result}
+            log_agent_step("process_user_input", current_state, updated_state)
+            current_state = updated_state
+            
+            # Conditional routing after process_user_input
+            if current_state["skip_perplexity"]:
+                logger.info("Skipping Perplexity search due to user-provided references")
+            else:
+                # Search Perplexity
+                perplexity_result = search_perplexity(current_state)
+                updated_state = {**current_state, **perplexity_result}
+                log_agent_step("search_perplexity", current_state, updated_state)
+                current_state = updated_state
+            
+            # Extract Firecrawl content
+            firecrawl_result = extract_firecrawl_content(current_state)
+            updated_state = {**current_state, **firecrawl_result}
+            log_agent_step("extract_firecrawl_content", current_state, updated_state)
+            current_state = updated_state
+            
+            # Process docs
+            docs_result = process_docs(current_state)
+            updated_state = {**current_state, **docs_result}
+            log_agent_step("process_docs", current_state, updated_state)
+            current_state = updated_state
+            
+            # Process YouTube links
+            youtube_result = process_youtube_links(current_state)
+            updated_state = {**current_state, **youtube_result}
+            log_agent_step("process_youtube_links", current_state, updated_state)
+            current_state = updated_state
+            
+            # Check data availability
+            data_check_result = check_data_availability(current_state)
+            updated_state = {**current_state, **data_check_result}
+            log_agent_step("check_data_availability", current_state, updated_state)
+            current_state = updated_state
+            
+            # Generate content
+            content_result = generate_content(current_state)
+            updated_state = {**current_state, **content_result}
+            log_agent_step("generate_content", current_state, updated_state)
+            current_state = updated_state
+            
+            # Validate content
+            validation_result = validate_content(current_state)
+            updated_state = {**current_state, **validation_result}
+            log_agent_step("validate_content", current_state, updated_state)
+            current_state = updated_state
+            
+            # Log the full agent execution trace
+            logger.info(f"Agent workflow execution trace:")
+            for log_entry in agent_logs:
+                logger.info(f"Agent: {log_entry['agent']}, Model: {log_entry['model_used']}, Errors: {log_entry['errors']}")
+            
+            # Return to original invoke function to get the final state
+            return original_invoke(state)
+        
+        # Use our logging-enhanced invoke function
+        final_state = invoke_with_logging(initial_state)
+        
         end_time = time.time()
         total_time = end_time - start_time
         final_state["performance_metrics"]["total_execution_time"] = total_time
         logger.info(f"Total execution time: {total_time:.4f} seconds")
+        
+        # Add agent execution trace to response
+        final_state["agent_execution_trace"] = agent_logs
+        
         if final_state["errors"]:
             raise HTTPException(status_code=500, detail={"detail": f"Errors occurred: {final_state['errors']}", "status": 500})
         return {
             "generated_content": final_state["generated_content"],
             "performance_metrics": final_state["performance_metrics"],
-            "errors": final_state["errors"]
+            "errors": final_state["errors"],
+            "agent_execution_trace": agent_logs
         }
     except Exception as e:
         end_time = time.time()
         total_time = end_time - start_time
         logger.error(f"Workflow failed: {str(e)} - Total time: {total_time:.4f} seconds")
         logger.error(f"Stack trace: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
+        
+        # Include agent logs in error response if available
+        error_detail = {
+            "detail": f"Internal server error: {str(e)}",
+            "status": 500
+        }
+        if 'agent_logs' in locals():
+            error_detail["agent_execution_trace"] = agent_logs
+            
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.post("/extract")
 async def extract_content(request: UrlRequest):
