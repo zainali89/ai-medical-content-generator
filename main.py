@@ -1,6 +1,6 @@
-import logging 
-import os 
-from dotenv import load_dotenv 
+import logging
+import os
+from dotenv import load_dotenv
 import json
 import requests
 from typing import TypedDict, List, Dict, Annotated
@@ -71,18 +71,6 @@ logger.info("OpenAI client initialized.")
 # Initialize Google GenAI client
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 logger.info("Google GenAI client initialized.")
-
-# Check for environment variables that might override model selection
-gemini_model_env = os.environ.get("GEMINI_MODEL")
-if gemini_model_env:
-    logger.info(f"Found GEMINI_MODEL environment variable: {gemini_model_env}")
-
-# Check if there's a default model configured
-try:
-    default_model = genai_client.default_model
-    logger.info(f"Gemini default model: {default_model}")
-except Exception as e:
-    logger.info("No default Gemini model configured or could not access it")
 
 # Initialize Firecrawl
 firecrawl = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
@@ -256,23 +244,14 @@ def search_perplexity(state: State) -> dict:
             {
                 "role": "system",
                 "content": """You are a specialized medical research assistant with expertise in searching and retrieving highly technical, 
-                clinical and research-focused information from medical literature that meets the highest standards of medical journalism. 
+                clinical and research-focused information from medical literature. 
                 You MUST retrieve information ONLY from:
                 1. Peer-reviewed medical journals with high impact factors (e.g., NEJM, The Lancet, JAMA, BMJ)
                 2. Official clinical guidelines from recognized health organizations (WHO, CDC, NIH, etc.)
                 3. Medical academic institutions and teaching hospitals
                 4. Specialized medical databases (PubMed, Cochrane Library, etc.)
                 
-                MEDICAL JOURNALISM STANDARDS:
-                - Organize information using standardized medical categories and headings
-                - Each source must be credible, preferably from indexed, peer-reviewed journals
-                - Include exact statistics with their confidence intervals when available
-                - Cover both established consensus and emerging research
-                - Present balanced perspectives on controversial topics
-                - Distinguish between practice guidelines and research findings
-                - Ensure information is contextualized with appropriate caveats (population specifics, study limitations, etc.)
-                
-                CONTENT REQUIREMENTS:
+                IMPORTANT REQUIREMENTS:
                 - Focus exclusively on scientifically validated, evidence-based medical information
                 - Include specific medical terminology, diagnostic criteria, treatment protocols, and clinical outcomes
                 - Cite recent research (within last 3-5 years when available)
@@ -306,14 +285,6 @@ def search_perplexity(state: State) -> dict:
                 4. Include ONLY facts that can be verified through medical literature
                 5. End with a comprehensive reference list in this format ONLY:
                    [Number] Title (Author(s), Publication Date). Link: [direct URL to medical source]
-                   Ensure all references are from peer-reviewed journals or official medical sources.
-                
-                QUALITY STANDARDS:
-                - Citations must be accurate, recent (within 5 years when applicable), and from high-impact sources
-                - Include both established knowledge and emerging research
-                - Present conflicting views where consensus is lacking
-                - Provide exact statistics with confidence intervals when available
-                - Distinguish between guidelines, recommendations, and research findings
                 
                 IMPORTANT: Search fresh sources for THIS request only. Do not reference any information from 
                 previous searches or include irrelevant topics (e.g., sleep apnea or other unrelated conditions). 
@@ -474,121 +445,6 @@ def process_youtube_links(state: State) -> dict:
         "critical_error": False
     }
 
-def extract_gemini_content(response):
-    """
-    Extract content from a Gemini API response using multiple fallback methods.
-    """
-    content = ""
-    logger.info(f"Extracting content from Gemini response of type: {type(response)}")
-    
-    # Method 1: Try to use the _get_text method if it exists
-    if hasattr(response, '_get_text'):
-        try:
-            logger.info("Attempting to use _get_text method")
-            text_content = response._get_text()
-            if text_content:
-                logger.info(f"Successfully extracted text using _get_text: {len(text_content)} chars")
-                return text_content.strip()
-        except Exception as e:
-            logger.warning(f"Error using _get_text method: {str(e)}")
-    
-    # Method 2: Try direct text attribute
-    if hasattr(response, 'text') and getattr(response, 'text', None):
-        content = response.text.strip()
-        logger.info(f"Successfully extracted text content from response.text, length: {len(content)} chars")
-        return content
-    
-    # Method 3: Extract from candidates
-    if hasattr(response, 'candidates'):
-        candidates = getattr(response, 'candidates', []) or []
-        logger.info(f"Attempting to extract content from {len(candidates)} candidates")
-        
-        for idx, candidate in enumerate(candidates):
-            # Log the entire candidate object for debugging
-            logger.info(f"Candidate {idx} attributes: {dir(candidate)}")
-            
-            # Method 3.1: Direct candidate.text
-            cand_txt = getattr(candidate, 'text', None)
-            if cand_txt:
-                cand_txt = cand_txt.strip()
-                logger.info(f"Found candidate.text ({idx}): {len(cand_txt)} chars")
-                content += cand_txt
-                continue
-            
-            # Method 3.2: From content object
-            content_obj = getattr(candidate, 'content', None)
-            if content_obj:
-                logger.info(f"Content object attributes: {dir(content_obj)}")
-                
-                # Method 3.2.1: Direct content_obj.text
-                content_text = getattr(content_obj, 'text', None)
-                if content_text:
-                    logger.info(f"Found content_obj.text directly: {len(content_text)} chars")
-                    content += content_text
-                    continue
-                
-                # Method 3.2.2: From parts
-                parts = getattr(content_obj, 'parts', None)
-                if parts:
-                    for part_idx, part in enumerate(parts):
-                        pt = getattr(part, 'text', None)
-                        if pt:
-                            logger.info(f"Found part.text ({idx}.{part_idx}): {len(pt)} chars")
-                            content += pt
-                    if content:
-                        continue
-                
-                # Method 3.2.3: Try to extract from string representation
-                try:
-                    content_obj_str = str(content_obj)
-                    if "text=" in content_obj_str:
-                        text_start = content_obj_str.find("text=") + 5
-                        text_end = content_obj_str.find("'", text_start + 1) if content_obj_str.find("'", text_start + 1) != -1 else len(content_obj_str)
-                        extracted_text = content_obj_str[text_start:text_end]
-                        if extracted_text:
-                            logger.info(f"Extracted text from content_obj string: {len(extracted_text)} chars")
-                            content += extracted_text
-                            continue
-                except Exception as e:
-                    logger.warning(f"Error extracting from content_obj string: {str(e)}")
-            
-            # Method 3.3: Last resort - string representation of candidate
-            try:
-                candidate_str = str(candidate)
-                logger.info(f"Using string representation of candidate {idx}: {len(candidate_str)} chars")
-                content += candidate_str
-            except Exception as e:
-                logger.error(f"Error converting candidate to string: {str(e)}")
-    
-    # Method 4: Raw response data if available
-    if not content and hasattr(response, '_raw_response'):
-        try:
-            raw_data = getattr(response, '_raw_response', None)
-            if raw_data and isinstance(raw_data, dict) and 'text' in raw_data:
-                content = raw_data['text']
-                logger.info(f"Extracted content from raw response data: {len(content)} chars")
-        except Exception as e:
-            logger.warning(f"Error extracting from raw response: {str(e)}")
-    
-    # Method 5: Last resort - full string representation of response
-    if not content:
-        try:
-            response_str = str(response)
-            if "text=" in response_str:
-                text_start = response_str.find("text=") + 5
-                text_end = response_str.find("'", text_start + 1) if response_str.find("'", text_start + 1) != -1 else len(response_str)
-                content = response_str[text_start:text_end]
-                logger.info(f"Extracted content from response string: {len(content)} chars")
-        except Exception as e:
-            logger.warning(f"Error extracting from response string: {str(e)}")
-    
-    if content:
-        logger.info(f"Successfully extracted content using multiple methods, total length: {len(content)} chars")
-    else:
-        logger.warning("Could not extract any content from the response")
-    
-    return content
-
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
@@ -629,21 +485,19 @@ def generate_content(state: State) -> dict:
     prompt = f"""
     Write a referenced, fact-checked, and neutral article about {state['user_input_topic']} specifically tailored for {state['target_audience']}. Use Australian English (e.g., 'organise', 'centre') and base all factual claims STRICTLY on the provided reference data from peer-reviewed or credible sources.
 
-    ARTICLE FORMAT AND STRUCTURE:
+    ARTICLE FORMAT:
     - Title: Use ONLY "{state['user_input_topic']}" as the title. Do not modify, expand, or rewrite this title.
     - Do NOT repeat the topic as an introduction paragraph or summary at the beginning of the article.
-    - Structure the article using STANDARD MEDICAL SECTION HEADINGS
-    - IMPORTANT: Use ONLY these standard medical section headings. Use the user's description text as section headings.
-    - Include only relevant sections based on the topic - not all sections may be necessary.
+    - Start directly with relevant content after the title.
     - Be concise and prioritize completion over verbose explanations.
     
-    CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE "REFERENCES" SECTION AT THE END WITH PROPERLY FORMATTED CITATIONS. This is non-negotiable.
-    Your response will be rejected if references are missing or incomplete. Reserve at least 20% of your word count for references.
+    CRITICAL REQUIREMENT: ALL ARTICLES MUST INCLUDE A COMPLETE REFERENCES SECTION AT THE END. This is non-negotiable.
+    Your response will be rejected if references are missing or incomplete. Reserve at least 10% of your word count for references.
 
     IMPORTANT: The article MUST be EXACTLY {length_words} words in length (±10%) INCLUDING the references section. 
     Structure your article to fit this length requirement, ensuring references are never cut off.
 
-    TO PREVENT CUTOFFS: Make the main content shorter to ensure you have enough space for the references section.
+    TO PREVENT CUTOFFS: Be more concise in your explanations, use fewer examples, and ensure you have enough space for the references section.
     DO NOT leave any sentences unfinished.
 
     IMPORTANT: DO NOT HALLUCINATE OR INVENT ANY INFORMATION. If the provided reference data doesn't cover a particular aspect of the topic, explicitly state that information is limited rather than making up facts. Only include information that is directly supported by the reference data provided below.
@@ -677,16 +531,12 @@ def generate_content(state: State) -> dict:
     STRUCTURE OF YOUR RESPONSE:
     1. Title: ONLY "{state['user_input_topic']}" (not prefixed with "Medical Topic:" or any other text)
     2. Main article content (start immediately with relevant information, be concise)
-    3. Mandatory "References" heading (exactly as shown: "References")
+    3. Mandatory "References" heading
     4. Complete numbered reference list in this format ONLY:
        - [Number]. Title (Author(s), Date). Link: [URL]
 
-    IMPORTANT: DO NOT include ANY additional text after the references section. Do not include word counts, notes about article length, or any other metadata at the end of your response.
-
-    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 20% of your word count for references.
+    EVERY reference you cite in-text MUST appear in the references section. Reserve AT LEAST 10% of your word count for references.
     Double-check that your response ends with complete references before submitting.
-
-    IMPORTANT: PRIORITIZE COMPLETING THE REFERENCES SECTION OVER ADDING MORE CONTENT. If you're running out of space, make the article content shorter to ensure you have room for references.
 
     - User Description: {state['user_input_description']}
     - Length: ~{length_words} words (INCLUDING references)
@@ -703,170 +553,46 @@ def generate_content(state: State) -> dict:
     """
     errors = []
     critical_error = False
-    
-    # Track attempts for retry logic
-    max_attempts = 3
-    attempt = 0
-    content = ""
-    
-    while attempt < max_attempts and not content:
-        attempt += 1
-        logger.info(f"Content generation attempt {attempt} of {max_attempts}")
+    try:
+        # Estimate required tokens based on target word count (use higher ratio for medical content)
+        estimated_tokens = int(length_words * 2.0)  # Increase from 1.5 to 2.0 for medical content
+        reserved_tokens = 1000  # Additional buffer for references and formatting
+        max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
         
-        try:
-            # Using Google's Gemini with maximum tokens to prevent truncation
-            model_name = "gemini-2.5-pro-preview-05-06"
-            logger.info(f"Attempting to use Gemini model: {model_name}")
-            
-            try:
-                # Log available models
-                available_models = genai_client.list_models()
-                model_names = [model.name for model in available_models]
-                logger.info(f"Available Gemini models: {model_names}")
-            except Exception as e:
-                logger.warning(f"Could not list available models: {str(e)}")
-            
-            # Set maximum output tokens to ensure full response
-            max_tokens = 8192  # Using maximum allowed tokens
-            logger.info(f"Using maximum output tokens: {max_tokens}")
-            
-            # Add detailed logging
-            logger.info(f"Prompt length: {len(prompt)} characters, ~{len(prompt.split())} words")
-            
-            # Use synchronous non-streaming API to avoid streaming issues
-            try:
-                logger.info("Making Gemini API call with non-streaming generate_content")
-                response = genai_client.models.generate_content(
-                    model=model_name,
-                    contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
-                    config=types.GenerateContentConfig(
-                        temperature=0.3,
-                        top_p=0.9,
-                        max_output_tokens=max_tokens
-                    )
-                )
-                
-                logger.info(f"Gemini API call completed, response type: {type(response)}")
-                
-                # Try to access raw response data if available
-                try:
-                    if hasattr(response, '_raw_response'):
-                        logger.info("Raw response data available")
-                        raw_data = getattr(response, '_raw_response', None)
-                        logger.info(f"Raw response data: {raw_data}")
-                except Exception as e:
-                    logger.warning(f"Error accessing raw response data: {str(e)}")
-                
-                # Log detailed response information
-                if response:
-                    logger.info(f"Response object attributes: {dir(response)}")
-                    
-                    # Check for text attribute
-                    if hasattr(response, 'text'):
-                        logger.info(f"Response has text attribute of type: {type(response.text)}")
-                        if response.text:
-                            logger.info(f"Response text length: {len(response.text)} characters")
-                        else:
-                            logger.warning("Response text attribute is empty or None")
-                    else:
-                        logger.warning("Response has no text attribute")
-                        
-                    # Check for parts attribute
-                    if hasattr(response, 'parts'):
-                        logger.info(f"Response has parts attribute: {len(getattr(response, 'parts', []))} parts")
-                    
-                    # Check for candidates
-                    if hasattr(response, 'candidates'):
-                        candidates = getattr(response, 'candidates', [])
-                        logger.info(f"Response has {len(candidates)} candidates")
-                        for i, candidate in enumerate(candidates):
-                            logger.info(f"Candidate {i} attributes: {dir(candidate)}")
-                            
-                            if hasattr(candidate, 'content'):
-                                content_obj = getattr(candidate, 'content', None)
-                                logger.info(f"Candidate {i} has content: {content_obj is not None}")
-                                
-                                if content_obj and hasattr(content_obj, 'parts'):
-                                    parts = getattr(content_obj, 'parts', [])
-                                    if parts is not None:
-                                        logger.info(f"Candidate {i} content has {len(parts)} parts")
-                                        for j, part in enumerate(parts):
-                                            logger.info(f"Candidate {i} part {j} type: {type(part)}")
-                                            if hasattr(part, 'text'):
-                                                part_text = getattr(part, 'text', '')
-                                                logger.info(f"Candidate {i} part {j} text length: {len(part_text) if part_text else 0} chars")
-                                    else:
-                                        logger.warning(f"Candidate {i} parts is None, skipping part enumeration")
-                    
-                    # Check for finish_reason if available
-                    if hasattr(response, 'finish_reason') or hasattr(response, 'usage'):
-                        logger.info(f"Response finish_reason: {getattr(response, 'finish_reason', 'Not available')}")
-                        logger.info(f"Response usage: {getattr(response, 'usage', 'Not available')}")
-                else:
-                    logger.error("Received None response from Gemini API")
-                
-                # Extract content using our comprehensive extraction function
-                content = extract_gemini_content(response)
-                
-                if not content:
-                    logger.warning(f"Empty content received on attempt {attempt}, will retry if attempts remain")
-                    # Wait before retrying
-                    time.sleep(2)
-                    continue
-            except Exception as api_error:
-                logger.error(f"Gemini API call error: {str(api_error)}")
-                logger.error(f"API error traceback: {traceback.format_exc()}")
-                if attempt < max_attempts:
-                    logger.info(f"Will retry after API error, attempt {attempt} of {max_attempts}")
-                    time.sleep(2)
-                    continue
-                else:
-                    raise  # Re-raise after max attempts
-            
-            # Log content length but don't apply any restrictions
-            word_count = len(content.split())
-            target_words = length_mapping.get(state["article_length"], 800)
-            logger.info(f"Generated content word count: {word_count} (target: {target_words})")
-            
-            # Check for common issues
-            has_references = "References" in content
-            logger.info(f"References section included: {has_references}")
-            
-            # Log first and last 100 characters to verify content start/end
-            if content:
-                logger.info(f"Content first 100 chars: {content[:100].replace(chr(10), ' ')}")
-                logger.info(f"Content last 100 chars: {content[-100:].replace(chr(10), ' ')}")
-            
-            # Check if content is significantly shorter than target length (less than 60% of target)
-            if (word_count < 50 or word_count < target_words * 0.6) and attempt < max_attempts:
-                logger.warning(f"Content too short ({word_count} words, target: {target_words}), retrying generation")
-                content = ""  # Reset to trigger retry
-                time.sleep(2)
-                continue
-                
-            logger.info(f"Content generation successful on attempt {attempt}")
-            break  # Exit loop if we have content
-            
-        except Exception as e:
-            logger.error(f"Content generation error on attempt {attempt}: {str(e)}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            if attempt < max_attempts:
-                logger.info(f"Will retry after error, attempt {attempt} of {max_attempts}")
-                time.sleep(2)
-                continue
-            else:
-                errors.append(f"Gemini API error after {max_attempts} attempts: {str(e)}")
-                content = ""
-                critical_error = True
-                break
-    
-    if not content:
-        errors.append(f"Failed to generate content after {max_attempts} attempts")
-        critical_error = True
-        logger.error(f"Content generation failed after {max_attempts} attempts")
-    else:
+        # Using Google's Gemini instead of OpenAI
+        response_stream = genai_client.models.generate_content_stream(
+            model="gemini-2.5-flash-preview-04-17",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                top_p=0.9,
+                max_output_tokens=max_tokens
+            )
+        )
+        
+        # Collect response chunks
+        response_chunks = []
+        for chunk in response_stream:
+            response_chunks.append(chunk.text)
+        content = "".join(response_chunks).strip()
+        
+        # Verify the word count matches the target length
+        word_count = len(content.split())
+        target_words = length_mapping.get(state["article_length"], 800)
+        min_words = int(target_words * 0.9)  # 10% below target
+        max_words = int(target_words * 1.1)  # 10% above target
+        
+        if min_words <= word_count <= max_words:
+            logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
+        else:
+            logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
+        
         logger.info("Content generated successfully using Gemini")
-        
+    except Exception as e:
+        errors.append(f"Gemini API error: {str(e)}")
+        content = ""
+        critical_error = True
+        logger.error(f"Content generation failed with Gemini: {str(e)}")
     return {
         "generated_content": content,
         "errors": errors,
@@ -1046,144 +772,24 @@ async def generate_article(request: dict):
     logger.info("Starting workflow execution")
     start_time = time.time()
     try:
-        # Capture agent execution trace
-        agent_logs = []
-        
-        # Define length mapping (copy from generate_content function)
-        length_mapping = {"Short": 800, "Medium": 1200, "Long": 2200}
-        
-        # Track states through the workflow
-        def log_agent_step(agent_name, input_state, output_state):
-            agent_logs.append({
-                "timestamp": datetime.datetime.now().isoformat(),
-                "agent": agent_name,
-                "input": {k: (v if k not in ["perplexity_data", "firecrawl_data", "docs_data", "youtube_data", "generated_content"] 
-                              else f"{len(v if isinstance(v, list) else v.split()) if v else 0} items") 
-                         for k, v in input_state.items()},
-                "output": {k: (v if k not in ["perplexity_data", "firecrawl_data", "docs_data", "youtube_data", "generated_content"] 
-                               else f"{len(v if isinstance(v, list) else v.split()) if v else 0} items") 
-                          for k, v in output_state.items() if k not in input_state or input_state[k] != output_state[k]},
-                "errors": output_state.get("errors", []),
-                "model_used": "gemini-2.5-pro-preview-05-06" if agent_name == "generate_content" else 
-                             "gpt-4o-mini" if agent_name == "validate_content" else
-                             "sonar-reasoning" if agent_name == "search_perplexity" else
-                             "None"
-            })
-            
-            # Log specific details about content generation
-            if agent_name == "generate_content" and output_state.get("generated_content"):
-                word_count = len(output_state["generated_content"].split())
-                target_words = length_mapping.get(input_state["article_length"], 800)
-                logger.info(f"Content generation details: Model=gemini-2.5-pro-preview-05-06, Words={word_count}, Target={target_words}")
-                
-                # Check if references section exists
-                has_references = "References" in output_state["generated_content"]
-                logger.info(f"References section included: {has_references}")
-            
-            # Log validation details
-            if agent_name == "validate_content":
-                logger.info(f"Content validation: Model=gpt-4o-mini, Valid={not bool(output_state.get('errors'))}")
-        
-        # Patching the invoke method to log steps (this would be better with LangGraph's tracing, but we're adding it manually)
-        original_invoke = langgraph_app.invoke
-        
-        def invoke_with_logging(state):
-            current_state = state.copy()
-            
-            # Process initial state
-            process_result = process_user_input(current_state)
-            updated_state = {**current_state, **process_result}
-            log_agent_step("process_user_input", current_state, updated_state)
-            current_state = updated_state
-            
-            # Conditional routing after process_user_input
-            if current_state["skip_perplexity"]:
-                logger.info("Skipping Perplexity search due to user-provided references")
-            else:
-                # Search Perplexity
-                perplexity_result = search_perplexity(current_state)
-                updated_state = {**current_state, **perplexity_result}
-                log_agent_step("search_perplexity", current_state, updated_state)
-                current_state = updated_state
-            
-            # Extract Firecrawl content
-            firecrawl_result = extract_firecrawl_content(current_state)
-            updated_state = {**current_state, **firecrawl_result}
-            log_agent_step("extract_firecrawl_content", current_state, updated_state)
-            current_state = updated_state
-            
-            # Process docs
-            docs_result = process_docs(current_state)
-            updated_state = {**current_state, **docs_result}
-            log_agent_step("process_docs", current_state, updated_state)
-            current_state = updated_state
-            
-            # Process YouTube links
-            youtube_result = process_youtube_links(current_state)
-            updated_state = {**current_state, **youtube_result}
-            log_agent_step("process_youtube_links", current_state, updated_state)
-            current_state = updated_state
-            
-            # Check data availability
-            data_check_result = check_data_availability(current_state)
-            updated_state = {**current_state, **data_check_result}
-            log_agent_step("check_data_availability", current_state, updated_state)
-            current_state = updated_state
-            
-            # Generate content
-            content_result = generate_content(current_state)
-            updated_state = {**current_state, **content_result}
-            log_agent_step("generate_content", current_state, updated_state)
-            current_state = updated_state
-            
-            # Validate content
-            validation_result = validate_content(current_state)
-            updated_state = {**current_state, **validation_result}
-            log_agent_step("validate_content", current_state, updated_state)
-            current_state = updated_state
-            
-            # Log the full agent execution trace
-            logger.info(f"Agent workflow execution trace:")
-            for log_entry in agent_logs:
-                logger.info(f"Agent: {log_entry['agent']}, Model: {log_entry['model_used']}, Errors: {log_entry['errors']}")
-            
-            # Return the final state directly instead of calling original_invoke again
-            return current_state
-        
-        # Use our logging-enhanced invoke function
-        final_state = invoke_with_logging(initial_state)
-        
+        final_state = langgraph_app.invoke(initial_state)
         end_time = time.time()
         total_time = end_time - start_time
         final_state["performance_metrics"]["total_execution_time"] = total_time
         logger.info(f"Total execution time: {total_time:.4f} seconds")
-        
-        # Add agent execution trace to response
-        final_state["agent_execution_trace"] = agent_logs
-        
         if final_state["errors"]:
             raise HTTPException(status_code=500, detail={"detail": f"Errors occurred: {final_state['errors']}", "status": 500})
         return {
             "generated_content": final_state["generated_content"],
             "performance_metrics": final_state["performance_metrics"],
-            "errors": final_state["errors"],
-            "agent_execution_trace": agent_logs
+            "errors": final_state["errors"]
         }
     except Exception as e:
         end_time = time.time()
         total_time = end_time - start_time
         logger.error(f"Workflow failed: {str(e)} - Total time: {total_time:.4f} seconds")
         logger.error(f"Stack trace: {traceback.format_exc()}")
-        
-        # Include agent logs in error response if available
-        error_detail = {
-            "detail": f"Internal server error: {str(e)}",
-            "status": 500
-        }
-        if 'agent_logs' in locals():
-            error_detail["agent_execution_trace"] = agent_logs
-            
-        raise HTTPException(status_code=500, detail=error_detail)
+        raise HTTPException(status_code=500, detail={"detail": f"Internal server error: {str(e)}", "status": 500})
 
 @app.post("/extract")
 async def extract_content(request: UrlRequest):
