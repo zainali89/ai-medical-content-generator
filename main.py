@@ -589,12 +589,7 @@ def generate_content(state: State) -> dict:
     errors = []
     critical_error = False
     try:
-        # Estimate required tokens based on target word count (use higher ratio for medical content)
-        estimated_tokens = int(length_words * 2.0)  # Increase from 1.5 to 2.0 for medical content
-        reserved_tokens = 2000  # Increased buffer for references and formatting
-        max_tokens = min(8000, max(4000, estimated_tokens * 2 + reserved_tokens))
-        
-        # Using Google's Gemini instead of OpenAI
+        # Using Google's Gemini with maximum tokens to prevent truncation
         model_name = "gemini-2.5-pro-preview-05-06"
         logger.info(f"Attempting to use Gemini model: {model_name}")
         
@@ -606,13 +601,12 @@ def generate_content(state: State) -> dict:
         except Exception as e:
             logger.warning(f"Could not list available models: {str(e)}")
         
-        # Add a safety check to adjust content length based on article length
-        if state["article_length"] == "Long":
-            # For longer articles, we need to ensure more space for references
-            logger.info("Long article detected, adjusting max_output_tokens to ensure room for references")
-            max_tokens = min(max_tokens, 7000)  # Limit to 7000 tokens to ensure completion
+        # Set maximum output tokens to ensure full response
+        max_tokens = 8192  # Using maximum allowed tokens
+        logger.info(f"Using maximum output tokens: {max_tokens}")
         
-        response_stream = genai_client.models.generate_content_stream(
+        # Use synchronous non-streaming API to avoid streaming issues
+        response = genai_client.models.generate_content(
             model=model_name,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(
@@ -622,42 +616,20 @@ def generate_content(state: State) -> dict:
             )
         )
         
-        logger.info(f"Gemini API call initiated with model: {model_name}")
+        logger.info(f"Gemini API call completed")
         
-        # Collect response chunks
-        response_chunks = []
-        for chunk in response_stream:
-            # Check if chunk.text is not None before appending
-            if chunk.text is not None:
-                response_chunks.append(chunk.text)
-            # If text is None but has parts, try to extract text from parts
-            elif hasattr(chunk, 'parts'):
-                for part in chunk.parts:
-                    if hasattr(part, 'text') and part.text:
-                        response_chunks.append(part.text)
+        # Extract content from response
+        content = ""
+        if response and response.text:
+            content = response.text.strip()
         
-        content = "".join(response_chunks).strip()
-        
-        # If content is empty, try to extract content from the final response if available
-        if not content and hasattr(response_stream, 'result'):
-            result = response_stream.result
-            if hasattr(result, 'text') and result.text:
-                content = result.text
-            elif hasattr(result, 'parts'):
-                for part in result.parts:
-                    if hasattr(part, 'text') and part.text:
-                        content += part.text
-        
-        # Verify the word count matches the target length
+        # Log content length but don't apply any restrictions
         word_count = len(content.split())
         target_words = length_mapping.get(state["article_length"], 800)
-        min_words = int(target_words * 0.9)  # 10% below target
-        max_words = int(target_words * 1.1)  # 10% above target
+        logger.info(f"Generated content word count: {word_count} (target: {target_words})")
         
-        if min_words <= word_count <= max_words:
-            logger.info(f"Content generated successfully using Gemini - Word count: {word_count} (target: {target_words})")
-        else:
-            logger.warning(f"Generated content doesn't meet length requirements - Got {word_count} words, target was {target_words} (±10%)")
+        has_references = "References" in content
+        logger.info(f"References section included: {has_references}")
         
         logger.info("Content generated successfully using Gemini")
     except Exception as e:
@@ -665,6 +637,7 @@ def generate_content(state: State) -> dict:
         content = ""
         critical_error = True
         logger.error(f"Content generation failed with Gemini: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
     return {
         "generated_content": content,
         "errors": errors,
