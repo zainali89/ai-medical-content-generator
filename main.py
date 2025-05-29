@@ -474,6 +474,121 @@ def process_youtube_links(state: State) -> dict:
         "critical_error": False
     }
 
+def extract_gemini_content(response):
+    """
+    Extract content from a Gemini API response using multiple fallback methods.
+    """
+    content = ""
+    logger.info(f"Extracting content from Gemini response of type: {type(response)}")
+    
+    # Method 1: Try to use the _get_text method if it exists
+    if hasattr(response, '_get_text'):
+        try:
+            logger.info("Attempting to use _get_text method")
+            text_content = response._get_text()
+            if text_content:
+                logger.info(f"Successfully extracted text using _get_text: {len(text_content)} chars")
+                return text_content.strip()
+        except Exception as e:
+            logger.warning(f"Error using _get_text method: {str(e)}")
+    
+    # Method 2: Try direct text attribute
+    if hasattr(response, 'text') and getattr(response, 'text', None):
+        content = response.text.strip()
+        logger.info(f"Successfully extracted text content from response.text, length: {len(content)} chars")
+        return content
+    
+    # Method 3: Extract from candidates
+    if hasattr(response, 'candidates'):
+        candidates = getattr(response, 'candidates', []) or []
+        logger.info(f"Attempting to extract content from {len(candidates)} candidates")
+        
+        for idx, candidate in enumerate(candidates):
+            # Log the entire candidate object for debugging
+            logger.info(f"Candidate {idx} attributes: {dir(candidate)}")
+            
+            # Method 3.1: Direct candidate.text
+            cand_txt = getattr(candidate, 'text', None)
+            if cand_txt:
+                cand_txt = cand_txt.strip()
+                logger.info(f"Found candidate.text ({idx}): {len(cand_txt)} chars")
+                content += cand_txt
+                continue
+            
+            # Method 3.2: From content object
+            content_obj = getattr(candidate, 'content', None)
+            if content_obj:
+                logger.info(f"Content object attributes: {dir(content_obj)}")
+                
+                # Method 3.2.1: Direct content_obj.text
+                content_text = getattr(content_obj, 'text', None)
+                if content_text:
+                    logger.info(f"Found content_obj.text directly: {len(content_text)} chars")
+                    content += content_text
+                    continue
+                
+                # Method 3.2.2: From parts
+                parts = getattr(content_obj, 'parts', None)
+                if parts:
+                    for part_idx, part in enumerate(parts):
+                        pt = getattr(part, 'text', None)
+                        if pt:
+                            logger.info(f"Found part.text ({idx}.{part_idx}): {len(pt)} chars")
+                            content += pt
+                    if content:
+                        continue
+                
+                # Method 3.2.3: Try to extract from string representation
+                try:
+                    content_obj_str = str(content_obj)
+                    if "text=" in content_obj_str:
+                        text_start = content_obj_str.find("text=") + 5
+                        text_end = content_obj_str.find("'", text_start + 1) if content_obj_str.find("'", text_start + 1) != -1 else len(content_obj_str)
+                        extracted_text = content_obj_str[text_start:text_end]
+                        if extracted_text:
+                            logger.info(f"Extracted text from content_obj string: {len(extracted_text)} chars")
+                            content += extracted_text
+                            continue
+                except Exception as e:
+                    logger.warning(f"Error extracting from content_obj string: {str(e)}")
+            
+            # Method 3.3: Last resort - string representation of candidate
+            try:
+                candidate_str = str(candidate)
+                logger.info(f"Using string representation of candidate {idx}: {len(candidate_str)} chars")
+                content += candidate_str
+            except Exception as e:
+                logger.error(f"Error converting candidate to string: {str(e)}")
+    
+    # Method 4: Raw response data if available
+    if not content and hasattr(response, '_raw_response'):
+        try:
+            raw_data = getattr(response, '_raw_response', None)
+            if raw_data and isinstance(raw_data, dict) and 'text' in raw_data:
+                content = raw_data['text']
+                logger.info(f"Extracted content from raw response data: {len(content)} chars")
+        except Exception as e:
+            logger.warning(f"Error extracting from raw response: {str(e)}")
+    
+    # Method 5: Last resort - full string representation of response
+    if not content:
+        try:
+            response_str = str(response)
+            if "text=" in response_str:
+                text_start = response_str.find("text=") + 5
+                text_end = response_str.find("'", text_start + 1) if response_str.find("'", text_start + 1) != -1 else len(response_str)
+                content = response_str[text_start:text_end]
+                logger.info(f"Extracted content from response string: {len(content)} chars")
+        except Exception as e:
+            logger.warning(f"Error extracting from response string: {str(e)}")
+    
+    if content:
+        logger.info(f"Successfully extracted content using multiple methods, total length: {len(content)} chars")
+    else:
+        logger.warning("Could not extract any content from the response")
+    
+    return content
+
 @timeit
 def generate_content(state: State) -> dict:
     if state["critical_error"]:
@@ -633,6 +748,15 @@ def generate_content(state: State) -> dict:
                 
                 logger.info(f"Gemini API call completed, response type: {type(response)}")
                 
+                # Try to access raw response data if available
+                try:
+                    if hasattr(response, '_raw_response'):
+                        logger.info("Raw response data available")
+                        raw_data = getattr(response, '_raw_response', None)
+                        logger.info(f"Raw response data: {raw_data}")
+                except Exception as e:
+                    logger.warning(f"Error accessing raw response data: {str(e)}")
+                
                 # Log detailed response information
                 if response:
                     logger.info(f"Response object attributes: {dir(response)}")
@@ -664,13 +788,15 @@ def generate_content(state: State) -> dict:
                                 
                                 if content_obj and hasattr(content_obj, 'parts'):
                                     parts = getattr(content_obj, 'parts', [])
-                                    logger.info(f"Candidate {i} content has {len(parts)} parts")
-                                    
-                                    for j, part in enumerate(parts):
-                                        logger.info(f"Candidate {i} part {j} type: {type(part)}")
-                                        if hasattr(part, 'text'):
-                                            part_text = getattr(part, 'text', '')
-                                            logger.info(f"Candidate {i} part {j} text length: {len(part_text) if part_text else 0} chars")
+                                    if parts is not None:
+                                        logger.info(f"Candidate {i} content has {len(parts)} parts")
+                                        for j, part in enumerate(parts):
+                                            logger.info(f"Candidate {i} part {j} type: {type(part)}")
+                                            if hasattr(part, 'text'):
+                                                part_text = getattr(part, 'text', '')
+                                                logger.info(f"Candidate {i} part {j} text length: {len(part_text) if part_text else 0} chars")
+                                    else:
+                                        logger.warning(f"Candidate {i} parts is None, skipping part enumeration")
                     
                     # Check for finish_reason if available
                     if hasattr(response, 'finish_reason') or hasattr(response, 'usage'):
@@ -679,33 +805,8 @@ def generate_content(state: State) -> dict:
                 else:
                     logger.error("Received None response from Gemini API")
                 
-                # Extract content from response
-                content = ""
-                if response and response.text:
-                    content = response.text.strip()
-                    logger.info(f"Successfully extracted text content, length: {len(content)} chars")
-                elif response and hasattr(response, 'candidates'):
-                    # Try to extract content from candidates
-                    candidates = getattr(response, 'candidates', [])
-                    logger.info(f"Attempting to extract content from {len(candidates)} candidates")
-                    
-                    for candidate in candidates:
-                        if hasattr(candidate, 'content'):
-                            content_obj = getattr(candidate, 'content', None)
-                            if content_obj and hasattr(content_obj, 'parts'):
-                                parts = getattr(content_obj, 'parts', [])
-                                for part in parts:
-                                    if hasattr(part, 'text') and getattr(part, 'text', ''):
-                                        part_text = getattr(part, 'text', '')
-                                        logger.info(f"Found text in candidate part: {len(part_text)} chars")
-                                        content += part_text
-                    
-                    if content:
-                        logger.info(f"Successfully extracted content from candidates, length: {len(content)} chars")
-                    else:
-                        logger.warning("Could not extract content from candidates")
-                else:
-                    logger.error("No text content in response and no candidates available")
+                # Extract content using our comprehensive extraction function
+                content = extract_gemini_content(response)
                 
                 if not content:
                     logger.warning(f"Empty content received on attempt {attempt}, will retry if attempts remain")
@@ -736,8 +837,9 @@ def generate_content(state: State) -> dict:
                 logger.info(f"Content first 100 chars: {content[:100].replace(chr(10), ' ')}")
                 logger.info(f"Content last 100 chars: {content[-100:].replace(chr(10), ' ')}")
             
-            if word_count < 50 and attempt < max_attempts:
-                logger.warning(f"Content too short ({word_count} words), retrying generation")
+            # Check if content is significantly shorter than target length (less than 60% of target)
+            if (word_count < 50 or word_count < target_words * 0.6) and attempt < max_attempts:
+                logger.warning(f"Content too short ({word_count} words, target: {target_words}), retrying generation")
                 content = ""  # Reset to trigger retry
                 time.sleep(2)
                 continue
@@ -1045,8 +1147,8 @@ async def generate_article(request: dict):
             for log_entry in agent_logs:
                 logger.info(f"Agent: {log_entry['agent']}, Model: {log_entry['model_used']}, Errors: {log_entry['errors']}")
             
-            # Return to original invoke function to get the final state
-            return original_invoke(state)
+            # Return the final state directly instead of calling original_invoke again
+            return current_state
         
         # Use our logging-enhanced invoke function
         final_state = invoke_with_logging(initial_state)
